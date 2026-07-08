@@ -14,7 +14,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.body.prepend(renderer.domElement);
 
-const showroom = new Showroom();
+const showroom = new Showroom(renderer);
 let race = null;
 let state = 'title'; // title | char | bike | race | over
 

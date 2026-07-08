@@ -16,52 +16,165 @@ function canvasTexture(w, h, draw) {
   return t;
 }
 
-// Asfalt mét ingebakken rand- en middenstrepen. Eén tile = 8 m weg (v-as),
-// u-as beslaat de volle wegbreedte van 7 m — strepen kunnen dus nooit
-// boven de heuvels zweven en er is niets om mee te z-fighten.
-function asphaltTexture() {
-  const t = canvasTexture(256, 512, (g, w, h) => {
-    g.fillStyle = '#3d4045';
-    g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 1100; i++) {
-      const shade = 50 + Math.floor(Math.random() * 34);
-      g.fillStyle = `rgba(${shade},${shade + 2},${shade + 6},0.55)`;
-      g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+// Asfalt mét ingebakken rand- en middenstrepen, spoorvorming, scheuren en
+// reparatievlakken. Eén tile = 8 m weg (v-as), u-as beslaat de volle
+// wegbreedte van 7 m — strepen kunnen dus nooit boven de heuvels zweven.
+// Kleur- en bumpcanvas delen dezelfde korrel/scheur-geometrie zodat het
+// reliëf klopt met wat je ziet.
+function asphaltTextures() {
+  const w = 512;
+  const h = 1024;
+  const colorC = document.createElement('canvas');
+  colorC.width = w;
+  colorC.height = h;
+  const bumpC = document.createElement('canvas');
+  bumpC.width = w;
+  bumpC.height = h;
+  const g = colorC.getContext('2d');
+  const b = bumpC.getContext('2d');
+
+  g.fillStyle = '#3d4045';
+  g.fillRect(0, 0, w, h);
+  b.fillStyle = '#808080';
+  b.fillRect(0, 0, w, h);
+
+  // Spoorvorming: twee donkere banden waar de wielen rijden (zachte randen
+  // door drie gestapelde translucente rects).
+  for (const cx of [w * 0.3, w * 0.7]) {
+    for (const [bw, al] of [[0.17, 0.05], [0.11, 0.06], [0.055, 0.07]]) {
+      g.fillStyle = `rgba(18,20,24,${al})`;
+      g.fillRect(cx - (w * bw) / 2, 0, w * bw, h);
     }
-    g.fillStyle = '#e8e8e0';
-    const edgeU = ((0.2 / ROAD_W) * w); // randlijn-centrum op 0.2 m van de wegrand
-    const edgeW = (0.12 / ROAD_W) * w;
-    g.fillRect(edgeU - edgeW / 2, 0, edgeW, h);
-    g.fillRect(w - edgeU - edgeW / 2, 0, edgeW, h);
-    const dashW = (0.16 / ROAD_W) * w; // middenstreep: 1.4 m van elke 8 m
-    g.fillRect(w / 2 - dashW / 2, 0, dashW, (1.4 / 8) * h);
-  });
-  t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
-  return t;
+  }
+
+  // Korrel op beide canvassen.
+  for (let i = 0; i < 2600; i++) {
+    const x = Math.random() * w;
+    const y = Math.random() * h;
+    const shade = 50 + Math.floor(Math.random() * 40);
+    g.fillStyle = `rgba(${shade},${shade + 2},${shade + 6},0.5)`;
+    g.fillRect(x, y, 2, 2);
+    const bs = 105 + Math.floor(Math.random() * 60);
+    b.fillStyle = `rgb(${bs},${bs},${bs})`;
+    b.fillRect(x, y, 2, 2);
+  }
+
+  // Scheuren: gedeelde polylines (donker in kleur, diep in bump).
+  for (let i = 0; i < 7; i++) {
+    let x = Math.random() * w;
+    let y = Math.random() * h;
+    g.strokeStyle = 'rgba(18,19,22,0.55)';
+    b.strokeStyle = 'rgb(44,44,44)';
+    g.lineWidth = 1.6;
+    b.lineWidth = 2.4;
+    g.beginPath();
+    b.beginPath();
+    g.moveTo(x, y);
+    b.moveTo(x, y);
+    const segs = 4 + Math.floor(Math.random() * 4);
+    for (let s = 0; s < segs; s++) {
+      x += (Math.random() - 0.5) * 60;
+      y += 20 + Math.random() * 46;
+      g.lineTo(x, y);
+      b.lineTo(x, y);
+    }
+    g.stroke();
+    b.stroke();
+  }
+
+  // Reparatievlakken: donkerder vers asfalt, net iets verhoogd.
+  for (let i = 0; i < 4; i++) {
+    const x = Math.random() * w * 0.8;
+    const y = Math.random() * h * 0.9;
+    const pw = 40 + Math.random() * 90;
+    const ph = 60 + Math.random() * 140;
+    g.fillStyle = 'rgba(28,30,34,0.35)';
+    g.fillRect(x, y, pw, ph);
+    b.fillStyle = 'rgb(140,140,140)';
+    b.fillRect(x, y, pw, ph);
+  }
+
+  // Wegmarkering, licht versleten.
+  g.fillStyle = '#e8e8e0';
+  const edgeU = (0.2 / ROAD_W) * w; // randlijn-centrum op 0.2 m van de wegrand
+  const edgeW = (0.12 / ROAD_W) * w;
+  g.fillRect(edgeU - edgeW / 2, 0, edgeW, h);
+  g.fillRect(w - edgeU - edgeW / 2, 0, edgeW, h);
+  const dashW = (0.16 / ROAD_W) * w; // middenstreep: 1.4 m van elke 8 m
+  g.fillRect(w / 2 - dashW / 2, 0, dashW, (1.4 / 8) * h);
+  g.fillStyle = 'rgba(61,64,69,0.55)';
+  for (let i = 0; i < 90; i++) {
+    const lx = [edgeU, w - edgeU, w / 2][Math.floor(Math.random() * 3)];
+    g.fillRect(lx - edgeW / 2 + Math.random() * edgeW, Math.random() * h, 2, 3);
+  }
+
+  const map = new THREE.CanvasTexture(colorC);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapT = THREE.RepeatWrapping;
+  map.anisotropy = 8;
+  const bump = new THREE.CanvasTexture(bumpC); // bump blijft lineair (geen sRGB)
+  bump.wrapT = THREE.RepeatWrapping;
+  bump.anisotropy = 4;
+  return { map, bump };
 }
 
-// Subtiel gevlekt gras; blobs worden gewrapt getekend zodat de tile naadloos is.
+// Gras met kleurvlekken, sprietjes en sporadische bloemetjes; alles wordt
+// gewrapt getekend (9 kopieën) zodat de tile naadloos blijft.
 function grassTexture() {
-  const t = canvasTexture(256, 256, (g, w, h) => {
-    g.fillStyle = '#6aa84f';
+  const t = canvasTexture(512, 512, (g, w, h) => {
+    g.fillStyle = '#67a24c';
     g.fillRect(0, 0, w, h);
-    const tints = ['#639e48', '#71b257', '#5e9a44', '#76b75c'];
-    g.globalAlpha = 0.3;
-    for (let i = 0; i < 260; i++) {
+    const wrap = (fn, x, y) => {
+      for (const dx of [0, -w, w]) for (const dy of [0, -h, h]) fn(x + dx, y + dy);
+    };
+    // Grote zachte kleurvlekken geven het veld diepte.
+    const tints = ['#5c9743', '#72b258', '#568e3e', '#7cbd63', '#639b4a'];
+    g.globalAlpha = 0.22;
+    for (let i = 0; i < 70; i++) {
       g.fillStyle = tints[i % tints.length];
       const x = Math.random() * w;
       const y = Math.random() * h;
-      const r = 3 + Math.random() * 9;
-      for (const dx of [0, -w, w]) {
-        for (const dy of [0, -h, h]) {
-          g.beginPath();
-          g.arc(x + dx, y + dy, r, 0, Math.PI * 2);
-          g.fill();
-        }
-      }
+      const r = 18 + Math.random() * 55;
+      wrap((px, py) => {
+        g.beginPath();
+        g.arc(px, py, r, 0, Math.PI * 2);
+        g.fill();
+      }, x, y);
     }
     g.globalAlpha = 1;
+    // Grassprieten: korte streepjes, licht en donker door elkaar.
+    g.lineWidth = 1.2;
+    for (let i = 0; i < 700; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      const len = 3 + Math.random() * 6;
+      const lean = (Math.random() - 0.5) * 3;
+      g.strokeStyle = Math.random() < 0.5 ? 'rgba(140,200,110,0.5)' : 'rgba(52,96,40,0.5)';
+      wrap((px, py) => {
+        g.beginPath();
+        g.moveTo(px, py);
+        g.lineTo(px + lean, py - len);
+        g.stroke();
+      }, x, y);
+    }
+    // Bloemetjes in de berm.
+    const petals = ['#ffffff', '#ffe066', '#ff8fa3'];
+    for (let i = 0; i < 26; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      g.fillStyle = petals[i % petals.length];
+      wrap((px, py) => {
+        g.beginPath();
+        g.arc(px, py, 1.8, 0, Math.PI * 2);
+        g.fill();
+      }, x, y);
+      g.fillStyle = '#c98a1b';
+      wrap((px, py) => {
+        g.beginPath();
+        g.arc(px, py, 0.7, 0, Math.PI * 2);
+        g.fill();
+      }, x, y);
+    }
   });
   t.wrapS = THREE.RepeatWrapping;
   t.wrapT = THREE.RepeatWrapping;
@@ -111,18 +224,59 @@ function tricolorTexture() {
   });
 }
 
-function paveTexture() {
-  return canvasTexture(256, 256, (g) => {
-    g.fillStyle = '#5b5e63';
-    g.fillRect(0, 0, 256, 256);
-    for (let y = 0; y < 8; y++) {
-      for (let x = 0; x < 8; x++) {
-        const shade = 90 + Math.floor(Math.random() * 50);
-        g.fillStyle = `rgb(${shade},${shade},${shade + 6})`;
-        g.fillRect(x * 32 + 2 + (y % 2 ? 8 : 0), y * 32 + 2, 26, 26);
-      }
+// Kasseien met lichtval per steen (kleur) en bolle stenen (bump): het reliëf
+// verkoopt de sectie ook zonder geometrie.
+function paveTextures() {
+  const S = 512;
+  const colorC = document.createElement('canvas');
+  colorC.width = colorC.height = S;
+  const bumpC = document.createElement('canvas');
+  bumpC.width = bumpC.height = S;
+  const g = colorC.getContext('2d');
+  const b = bumpC.getContext('2d');
+  g.fillStyle = '#43413d'; // voegen
+  g.fillRect(0, 0, S, S);
+  b.fillStyle = '#2a2a2a';
+  b.fillRect(0, 0, S, S);
+  const cell = S / 12;
+  const rgb = (v) => {
+    const n = Math.max(0, Math.min(255, Math.round(v)));
+    return `rgb(${n},${n},${Math.min(255, n + 5)})`;
+  };
+  for (let y = 0; y < 12; y++) {
+    for (let x = 0; x < 13; x++) {
+      const off = (y % 2) * (cell / 2);
+      const px = x * cell + off - cell + 2 + Math.random() * 2;
+      const py = y * cell + 2 + Math.random() * 2;
+      const pw = cell - 5 - Math.random() * 3;
+      const ph = cell - 5 - Math.random() * 3;
+      const base = 96 + Math.floor(Math.random() * 44);
+      // Steen met lichtval van boven.
+      const grad = g.createLinearGradient(px, py, px, py + ph);
+      grad.addColorStop(0, rgb(base + 30));
+      grad.addColorStop(0.6, rgb(base));
+      grad.addColorStop(1, rgb(base - 26));
+      g.fillStyle = grad;
+      g.beginPath();
+      g.roundRect(px, py, pw, ph, 5);
+      g.fill();
+      // Bump: bolle steen, diepe voegen.
+      const bg = b.createRadialGradient(px + pw / 2, py + ph / 2, 2, px + pw / 2, py + ph / 2, Math.max(pw, ph) * 0.62);
+      bg.addColorStop(0, '#d8d8d8');
+      bg.addColorStop(0.75, '#9a9a9a');
+      bg.addColorStop(1, '#333333');
+      b.fillStyle = bg;
+      b.beginPath();
+      b.roundRect(px, py, pw, ph, 5);
+      b.fill();
     }
-  });
+  }
+  const map = new THREE.CanvasTexture(colorC);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 4;
+  const bump = new THREE.CanvasTexture(bumpC);
+  bump.anisotropy = 4;
+  return { map, bump };
 }
 
 function barrierTexture() {
@@ -194,7 +348,7 @@ export const AMBIANCES = [
 // ─── Zones: het parcours als lazy plan {type, start, end, fx} ───
 export const ZONES = {
   etappe: { len: [500, 900], minDist: 0, weight: 5, fx: { w: {}, spacing: 1.0, cluster: 0.18 } },
-  publiek: { len: [250, 400], minDist: 400, weight: 2, fx: { w: { barrier: 3, cones: 2, pave: 0 }, spacing: 0.9, cluster: 0.25 }, toast: 'PUBLIEKSHAAG !' },
+  publiek: { len: [280, 460], minDist: 400, weight: 3, fx: { w: { barrier: 3, cones: 2, pave: 0 }, spacing: 0.9, cluster: 0.25 }, toast: 'PUBLIEKSHAAG !' },
   kasseien: { len: [180, 280], minDist: 800, weight: 2, fx: { w: { pave: 8, hay: 0.3, log: 0, barrier: 0 }, spacing: 0.3, cluster: 0 }, toast: 'SECTEUR PAVÉ !', banner: ['SECTEUR PAVÉ', 'polka'] },
   sprint: { len: [300, 450], minDist: 1200, weight: 1.5, fx: { w: { cones: 1.5, barrier: 0.5, log: 0, pave: 0 }, spacing: 1.6, cluster: 0, drag: 0.8 }, toast: 'SPRINT INTERMÉDIAIRE !', banner: ['SPRINT', 'sprint'] },
 };
@@ -286,6 +440,7 @@ class Obstacles {
     this.pool = {};
     this.nextZ = 120;
     this.justClustered = false;
+    const paveT = paveTextures();
     this.mats = {
       hay: new THREE.MeshStandardMaterial({ color: 0xd9b45b, roughness: 1 }),
       hayEnd: new THREE.MeshStandardMaterial({ color: 0xc29a3f, roughness: 1 }),
@@ -293,13 +448,14 @@ class Obstacles {
       logEnd: new THREE.MeshStandardMaterial({ color: 0xa8845c, roughness: 0.9 }),
       cone: new THREE.MeshStandardMaterial({ color: 0xff6a00, roughness: 0.7 }),
       barrier: new THREE.MeshStandardMaterial({ map: barrierTexture(), roughness: 0.8 }),
-      pave: new THREE.MeshStandardMaterial({ map: paveTexture(), roughness: 1 }),
+      pave: new THREE.MeshStandardMaterial({ map: paveT.map, bumpMap: paveT.bump, bumpScale: 0.5, roughness: 1 }),
       post: new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.8 }),
     };
   }
 
   build(id) {
     const g = new THREE.Group();
+    g.rotation.order = 'YXZ'; // eerst yaw (bocht), dan pitch (kasseienstrip op helling)
     if (id === 'hay') {
       for (const x of [-2.2, 0, 2.2]) {
         const b = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.8, 1.0), this.mats.hay);
@@ -369,8 +525,13 @@ class Obstacles {
     this.pool[id] = this.pool[id] || [];
     const obj = this.pool[id].pop() ?? this.build(id);
     const oy = this.terrain.heightAt(z);
-    obj.position.set(0, oy, z);
-    obj.rotation.x = def.pave ? -Math.atan(this.terrain.slopeAt(z)) : 0;
+    obj.position.set(this.terrain.curveAt(z), oy, z);
+    // Dwars op de bochtige wegas; volledige reset omdat objecten gepoold zijn.
+    obj.rotation.set(
+      def.pave ? -Math.atan(this.terrain.slopeAt(z)) : 0,
+      Math.atan(this.terrain.curveSlopeAt(z)),
+      0
+    );
     this.scene.add(obj);
     this.active.push({ id, obj, z, h: def.h, d: def.d, pave: !!def.pave, counted: false, oy });
     return def;
@@ -411,6 +572,7 @@ class Obstacles {
     }
     for (const m of Object.values(this.mats)) {
       if (m.map) m.map.dispose();
+      if (m.bumpMap) m.bumpMap.dispose();
       m.dispose();
     }
   }
@@ -437,14 +599,17 @@ export class World {
     this.cloudColor = ambiance.id === 'grijs' ? 0xe8ecf0 : 0xffffff;
 
     // ── Wereld-statische weg- en graschunks die het hoogteveld volgen ──
-    const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTexture(), roughness: 0.95 });
+    // De weg volgt óók de bochtige wegas x(z) (curved-vlag); het gras is
+    // 500 m breed rond x=0 en hoeft dus niet mee te buigen (max offset ±55 m).
+    const asph = asphaltTextures();
+    const roadMat = new THREE.MeshStandardMaterial({ map: asph.map, bumpMap: asph.bump, bumpScale: 0.15, roughness: 0.95 });
     const grassMat = new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1 });
     const placeChunk = (mesh, z) => {
       mesh.position.z = z + 30;
       this.refillChunk(mesh);
     };
-    this.roadChunks = new Scroller(scene, 9, 60, () => this.makeChunk(ROAD_W, 60, roadMat, 0.02, false), placeChunk, -120);
-    this.grassChunks = new Scroller(scene, 9, 60, () => this.makeChunk(500, 30, grassMat, 0, true), placeChunk, -120);
+    this.roadChunks = new Scroller(scene, 9, 60, () => this.makeChunk(ROAD_W, 60, roadMat, 0.02, false, true), placeChunk, -120);
+    this.grassChunks = new Scroller(scene, 9, 60, () => this.makeChunk(500, 30, grassMat, 0, true, false), placeChunk, -120);
 
     this.buildMountains();
     this.buildClouds();
@@ -478,7 +643,7 @@ export class World {
       (obj, z) => {
         const side = rand(0, 1) < 0.5 ? -1 : 1;
         const zf = z + rand(-6, 6); // hoogte altijd op de finale z na jitter
-        obj.position.set(side * rand(6, 26), this.terrain.heightAt(zf) - 0.05, zf);
+        obj.position.set(side * rand(6, 26) + this.terrain.curveAt(zf), this.terrain.heightAt(zf) - 0.05, zf);
         const s = rand(0.8, 1.6);
         obj.scale.set(s, s, s);
       }
@@ -491,30 +656,39 @@ export class World {
         const side = rand(0, 1) < 0.5 ? -1 : 1;
         // Patch is gecentreerd gebouwd (±3.6 m breed): centrum ≥ 8 m houdt de
         // dichtstbijzijnde bloem ruim van de wegrand (3.5 m).
-        obj.position.set(side * rand(8, 14), this.terrain.heightAt(z) - 0.05, z);
+        obj.position.set(side * rand(8, 14) + this.terrain.curveAt(z), this.terrain.heightAt(z) - 0.05, z);
         obj.rotation.x = -Math.atan(this.terrain.slopeAt(z));
       }
     );
 
-    // Juichend publiek met Franse vlaggen
+    // Juichend publiek met Franse vlaggen. Veel dichter op elkaar dan vroeger;
+    // op klimmen (Tour-traditie) staat iederéén langs de weg, op vlakke
+    // stukken dunt de haag uit via de visible-vlag.
     this.flagTex = tricolorTexture();
-    this.spectators = new Scroller(scene, 8, 95,
+    this.spectators = new Scroller(scene, 10, 45,
       () => this.makeCrowd(),
       (obj, z) => {
         const side = rand(0, 1) < 0.5 ? -1 : 1;
         const zf = z + rand(-8, 8);
-        obj.position.set(side * rand(4.3, 5.6), this.terrain.heightAt(zf) - 0.05, zf);
+        const climb = this.terrain.slopeAt(zf) > 0.035;
+        obj.visible = climb || rand(0, 1) < 0.55;
+        obj.position.set(
+          side * (climb ? rand(4.2, 5.2) : rand(4.3, 6.4)) + this.terrain.curveAt(zf),
+          this.terrain.heightAt(zf) - 0.05,
+          zf
+        );
         obj.rotation.x = -Math.atan(this.terrain.slopeAt(zf));
       },
       40
     );
 
     // Publiekshaag: dichte rijen die alleen zichtbaar zijn in publiekszones.
-    this.hedges = new Scroller(scene, 10, 12,
+    this.hedges = new Scroller(scene, 12, 12,
       () => this.makeHedgeRow(),
       (obj, z) => {
         obj.visible = this.course.zoneAt(z).type === 'publiek';
-        obj.position.set(0, this.terrain.heightAt(z) - 0.05, z);
+        obj.position.set(this.terrain.curveAt(z), this.terrain.heightAt(z) - 0.05, z);
+        obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(z));
         obj.rotation.x = -Math.atan(this.terrain.slopeAt(z));
       }
     );
@@ -534,8 +708,8 @@ export class World {
           obj.userData.textIndex = (obj.userData.textIndex + 3) % ARCH_TEXTS.length;
           this.setArchText(obj, obj.userData.textIndex);
         }
-        obj.position.z = zf;
-        obj.position.y = this.terrain.heightAt(zf) - 0.05;
+        obj.position.set(this.terrain.curveAt(zf), this.terrain.heightAt(zf) - 0.05, zf);
+        obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(zf));
       },
       45
     );
@@ -546,7 +720,8 @@ export class World {
     this.kmSigns = new Scroller(scene, 2, 500,
       () => this.makeSign(1.3, 0.7),
       (obj, z) => {
-        obj.position.set(ROAD_W / 2 + 1.2, this.terrain.heightAt(z) - 0.05, z);
+        obj.position.set(ROAD_W / 2 + 1.2 + this.terrain.curveAt(z), this.terrain.heightAt(z) - 0.05, z);
+        obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(z));
         this.drawSign(obj, `${(z / 1000).toFixed(1)} KM`, '#ffffff', '#111111');
       },
       500
@@ -556,7 +731,8 @@ export class World {
     this.bergSigns = new Scroller(scene, 2, 1300,
       () => this.makeSign(2.0, 0.8),
       (obj, z) => {
-        obj.position.set(-(ROAD_W / 2 + 1.4), this.terrain.heightAt(z) - 0.05, z);
+        obj.position.set(-(ROAD_W / 2 + 1.4) + this.terrain.curveAt(z), this.terrain.heightAt(z) - 0.05, z);
+        obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(z));
         this.drawSign(obj, pick(BERG_TEXTS), '#ffffff', '#c01818');
       },
       900
@@ -565,17 +741,21 @@ export class World {
     this.obstacles = new Obstacles(scene, courseRng.fork(102), this.course, terrain);
   }
 
-  makeChunk(width, segsZ, mat, lift, tileU) {
+  makeChunk(width, segsZ, mat, lift, tileU, curved) {
     const geo = new THREE.PlaneGeometry(width, 60, 1, segsZ);
     geo.rotateX(-Math.PI / 2); // éénmalig gebakken: lokaal xz-vlak, +y omhoog
+    const pos = geo.attributes.position;
     if (tileU) {
       // Gras: u-as wereld-verankerd op dezelfde 8 m-tile als de v-as.
-      const pos = geo.attributes.position;
       const uv = geo.attributes.uv;
       for (let i = 0; i < pos.count; i++) uv.setX(i, pos.getX(i) / 8);
     }
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData.lift = lift; // weg 2 cm boven gras: geen z-fighting, geen doorzak
+    mesh.userData.curved = curved;
+    // Originele lokale x bewaren: refillChunk sheart de weg lateraal langs
+    // x(z) en mag niet cumulatief op eerdere offsets stapelen.
+    mesh.userData.baseX = Float32Array.from({ length: pos.count }, (_, i) => pos.getX(i));
     mesh.receiveShadow = true;
     mesh.castShadow = false;
     return mesh;
@@ -588,12 +768,18 @@ export class World {
     const nor = g.attributes.normal;
     const uv = g.attributes.uv;
     const lift = mesh.userData.lift;
+    const curved = mesh.userData.curved;
+    const baseX = mesh.userData.baseX;
     for (let i = 0; i < pos.count; i++) {
       const wz = mesh.position.z + pos.getZ(i);
       const s = this.terrain.slopeAt(wz);
       const inv = 1 / Math.hypot(1, s);
+      if (curved) pos.setX(i, baseX[i] + this.terrain.curveAt(wz));
       pos.setY(i, this.terrain.heightAt(wz) + lift);
-      nor.setXYZ(i, 0, inv, -s * inv); // analytische normaal: naadloos over chunkgrenzen
+      // Analytische normaal: naadloos over chunkgrenzen. Laterale shear laat
+      // de normaal ongemoeid (∂P/∂u blijft puur x̂), dus curve-term ontbreekt
+      // hier bewust.
+      nor.setXYZ(i, 0, inv, -s * inv);
       uv.setY(i, wz / 8); // wereld-verankerd: 1 tile = 8 m
     }
     pos.needsUpdate = nor.needsUpdate = uv.needsUpdate = true;
@@ -626,7 +812,7 @@ export class World {
 
   makeCrowd() {
     const g = new THREE.Group();
-    const n = Math.floor(this.rand(4, 8));
+    const n = Math.floor(this.rand(5, 10));
     for (let i = 0; i < n; i++) {
       const person = new THREE.Group();
       const color = new THREE.Color().setHSL(this.rand(0, 1), 0.7, 0.55);
@@ -661,6 +847,7 @@ export class World {
   // Dichte publieksrij links+rechts (x ±4.4) over 12 m, als instanced meshes.
   makeHedgeRow() {
     const g = new THREE.Group();
+    g.rotation.order = 'YXZ'; // eerst de bocht in draaien, dan de helling volgen
     const n = 16;
     const half = n / 2;
     const bodies = new THREE.InstancedMesh(
@@ -777,19 +964,23 @@ export class World {
 
   buildMountains() {
     this.mountains = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x7d8aa5, roughness: 1, flatShading: true });
+    // Drie tinten (verre toppen blauwer) tegen het "gestempelde" effect.
+    const mats = [0x7d8aa5, 0x8a94ab, 0x6f7d9a].map(
+      (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1, flatShading: true })
+    );
     const snow = new THREE.MeshStandardMaterial({ color: 0xf4f7fb, roughness: 1, flatShading: true });
-    for (let i = 0; i < 14; i++) {
-      const h = this.rand(30, 85);
-      const r = this.rand(28, 60);
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), mat);
+    for (let i = 0; i < 16; i++) {
+      const h = this.rand(60, 140);
+      const r = this.rand(34, 75);
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), mats[i % mats.length]);
       const side = i % 2 === 0 ? -1 : 1;
-      // Basis 10 m diep: h(z) ∈ [-8.7, 8.7] legt nooit de onderrand bloot.
-      cone.position.set(side * this.rand(90, 240), h / 2 - 10, this.rand(-120, 420));
+      // Basis 45 m diep: het terrein golft nu ±36 m (col-octaaf) en mag de
+      // onderrand nooit blootleggen.
+      cone.position.set(side * this.rand(100, 260), h / 2 - 45, this.rand(-120, 430));
       this.mountains.add(cone);
-      if (h > 55) {
+      if (h > 100) {
         const cap = new THREE.Mesh(new THREE.ConeGeometry(r * 0.32, h * 0.3, 7), snow);
-        cap.position.set(cone.position.x, h - h * 0.15 - 10, cone.position.z);
+        cap.position.set(cone.position.x, h - h * 0.15 - 45, cone.position.z);
         this.mountains.add(cap);
       }
     }
@@ -815,8 +1006,12 @@ export class World {
   }
 
   update(playerZ, dt, time) {
-    this.mountains.position.z = playerZ;
-    this.clouds.position.z = playerZ;
+    // Achtergrond schuift mee met de speler, ook lateraal door de bochten;
+    // wolken deinen mee met de helft van de terreinhoogte zodat ze op cols
+    // niet ineens laag hangen.
+    const curve = this.terrain.curveAt(playerZ);
+    this.mountains.position.set(curve, 0, playerZ);
+    this.clouds.position.set(curve * 0.6, this.terrain.heightAt(playerZ) * 0.5, playerZ);
     for (const cl of this.clouds.children) {
       cl.position.x += cl.userData.drift * dt;
       if (cl.position.x > 170) cl.position.x = -170;

@@ -1,11 +1,15 @@
 // Showroom: draaiend 3D-voorbeeld van renner + fiets in de keuzemenu's.
 import * as THREE from 'three';
 import { disposeObject } from './models.js';
+import { envMap } from './env.js';
 
 export class Showroom {
-  constructor() {
+  constructor(renderer) {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x12151f);
+    // IBL laat het carbon en metaal in de showroom glanzen.
+    this.scene.environment = envMap(renderer);
+    this.scene.environmentIntensity = 0.5;
     this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
     this.camera.position.set(2.7, 1.8, 3.6);
     this.camera.lookAt(0, 0.85, 0);

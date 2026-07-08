@@ -58,6 +58,12 @@ export function jerseyTexture(kind, number = 1) {
     g.fillRect(476, 0, 36, 512);
     g.fillRect(228, 0, 56, 512);
 
+    // Stof-weave: fijn breiraster over het hele shirt (heel subtiel).
+    g.fillStyle = 'rgba(0,0,0,0.05)';
+    for (let y = 0; y < 512; y += 3) g.fillRect(0, y, 512, 1);
+    g.fillStyle = 'rgba(0,0,0,0.03)';
+    for (let x = 0; x < 512; x += 3) g.fillRect(x, 0, 1, 512);
+
     // Bolletjes over het hele vlak (geïntegreerd, geen aparte repeat-texture).
     if (kind === 'polka') {
       g.fillStyle = '#e02020';
@@ -75,9 +81,22 @@ export function jerseyTexture(kind, number = 1) {
     g.fillRect(0, 112, 512, 30);
     g.fillRect(0, 358, 512, 18);
 
-    // Ritslijn op de borst (u=0.25 → x=128).
+    // Ritslijn op de borst (u=0.25 → x=128) met trekkertje bij de kraag.
     g.fillStyle = 'rgba(20,22,28,0.45)';
     g.fillRect(126, 142, 4, 190);
+    g.fillStyle = 'rgba(20,22,28,0.8)';
+    g.fillRect(124, 146, 8, 11);
+
+    // Drie rugzakjes (klassiek wielershirt) op de onderrug (u≈0.75 → x≈384).
+    g.fillStyle = 'rgba(0,0,0,0.14)';
+    g.fillRect(322, 300, 124, 52);
+    g.strokeStyle = 'rgba(0,0,0,0.35)';
+    g.lineWidth = 2.5;
+    g.strokeRect(322, 300, 124, 52);
+    g.beginPath();
+    g.moveTo(363, 300); g.lineTo(363, 352);
+    g.moveTo(405, 300); g.lineTo(405, 352);
+    g.stroke();
 
     // Sponsortekst op de borst, binnen u=0.25±0.12 en v 0.30–0.68.
     g.textAlign = 'center';
@@ -181,6 +200,19 @@ export function helmetTexture(colorHex) {
     g.fillStyle = light ? '#e02020' : 'rgba(255,255,255,0.85)';
     g.fillRect(60, 0, 8, 256);
     g.fillRect(188, 0, 8, 256);
+    // Dunne pinstripes naast de hoofdstrepen.
+    g.fillStyle = light ? 'rgba(224,32,32,0.5)' : 'rgba(255,255,255,0.45)';
+    g.fillRect(52, 0, 3, 256);
+    g.fillRect(73, 0, 3, 256);
+    g.fillRect(180, 0, 3, 256);
+    g.fillRect(201, 0, 3, 256);
+
+    // Schaduw naar de helmrand toe geeft de bol meer volume.
+    const bot = g.createLinearGradient(0, 190, 0, 256);
+    bot.addColorStop(0, 'rgba(0,0,0,0)');
+    bot.addColorStop(1, 'rgba(0,0,0,0.25)');
+    g.fillStyle = bot;
+    g.fillRect(0, 190, 256, 66);
 
     g.fillStyle = 'rgba(12,13,16,0.88)';
     const vents = [

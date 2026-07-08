@@ -468,6 +468,7 @@ export function disposeObject(root) {
       for (const m of mats) {
         if (m.userData && m.userData.shared) continue;
         if (m.map && !m.map.userData.shared) m.map.dispose();
+        if (m.bumpMap && !m.bumpMap.userData.shared) m.bumpMap.dispose();
         m.dispose();
       }
     }

@@ -1,21 +1,33 @@
 // Analytisch hoogteveld voor het parcours: som van sinus-octaven waarbij per
 // octaaf een hellingsbudget s_i wordt gebudgetteerd en de amplitude wordt
 // afgeleid als a_i = s_i / k_i. Zo is de maximale helling by construction
-// begrensd (~15%), onafhankelijk van de golflengte-jitter.
+// begrensd (~19%), onafhankelijk van de golflengte-jitter.
+// Daarnaast een horizontaal bochtenveld x(z) met dezelfde budget-aanpak:
+// curveAt geeft de laterale offset van de wegas, curveSlopeAt de koers dx/dz.
 // GEEN three-import: deze module is puur wiskundig en in node testbaar.
 import { RNG } from './rng.js';
 
-// Hellingsbudget per octaaf (zie ontwerp): Σs_i = 0.139.
+// Hellingsbudget per octaaf (zie ontwerp): Σs_i = 0.195.
 // Amplitudes NOOIT hardcoden — altijd afleiden als a = s / k.
 const OCTAVES = [
-  { lambda: 900, s: 0.045 }, // lange hoofdgolf: grote heuvels (~6.5 m amplitude)
+  { lambda: 2600, s: 0.062 }, // col-golf: klimmen van honderden meters (~26 m amplitude)
+  { lambda: 900, s: 0.045 }, // hoofdgolf: grote heuvels (~6.5 m amplitude)
   { lambda: 340, s: 0.040 },
-  { lambda: 190, s: 0.039 },
-  { lambda: 95, s: 0.020 }, // korte octaaf, pas actief via ramp B
+  { lambda: 190, s: 0.030 },
+  { lambda: 95, s: 0.018 }, // korte octaaf, pas actief via ramp B
+];
+
+// Bochtenbudget: s_i = max |dx/dz| per octaaf. Σs = 0.58 → worst-case koers
+// ~30°, krapste bochtstraal ~115 m (zeldzaam: octaven moeten uitlijnen).
+const CURVE_OCTAVES = [
+  { lambda: 830, s: 0.30 },
+  { lambda: 410, s: 0.18 },
+  { lambda: 175, s: 0.10 },
 ];
 
 const RAMP_A = [100, 550]; // vlak tot 100 m, volle amplitude al rond 550 m
 const RAMP_B = [1200, 2100]; // extra korte octaaf "meer heuvels" na 1.2 km
+const RAMP_C = [150, 800]; // bochten faden in na de rechte start
 
 function smoothstep(e0, e1, x) {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
@@ -28,50 +40,78 @@ function smoothstepSlope(e0, e1, x) {
   return (6 * t * (1 - t)) / (e1 - e0);
 }
 
+function makeOctaves(rng, defs) {
+  return defs.map(({ lambda, s }) => {
+    const l = lambda * (0.9 + rng.next() * 0.25);
+    const k = (2 * Math.PI) / l;
+    return { k, a: s / k, phi: rng.next() * Math.PI * 2 };
+  });
+}
+
 export class Terrain {
   constructor(rng = new RNG((Math.random() * 2 ** 32) >>> 0)) {
-    this.octaves = OCTAVES.map(({ lambda, s }) => {
-      const l = lambda * (0.9 + rng.next() * 0.25);
-      const k = (2 * Math.PI) / l;
-      return { k, a: s / k, phi: rng.next() * Math.PI * 2 };
-    });
+    this.octaves = makeOctaves(rng, OCTAVES);
+    this.curveOctaves = makeOctaves(rng, CURVE_OCTAVES);
   }
 
-  // Hoogte in meters; exact 0 voor z <= 150 (vlakke start) en alle z < 0.
+  // Hoogte in meters; exact 0 voor z <= 100 (vlakke start) en alle z < 0.
+  // De laatste (kortste) octaaf staat op ramp B: "meer heuvels" na 1.2 km.
   heightAt(z) {
     if (z <= RAMP_A[0]) return 0;
     const A = smoothstep(RAMP_A[0], RAMP_A[1], z);
     const B = smoothstep(RAMP_B[0], RAMP_B[1], z);
-    const [o1, o2, o3, o4] = this.octaves;
-    return A * (
-      o1.a * Math.sin(o1.k * z + o1.phi) +
-      o2.a * Math.sin(o2.k * z + o2.phi) +
-      o3.a * Math.sin(o3.k * z + o3.phi) +
-      B * (o4.a * Math.sin(o4.k * z + o4.phi))
-    );
+    const os = this.octaves;
+    const last = os.length - 1;
+    let sum = 0;
+    for (let i = 0; i <= last; i++) {
+      sum += (i === last ? B : 1) * os[i].a * Math.sin(os[i].k * z + os[i].phi);
+    }
+    return A * sum;
   }
 
   // Analytische dh/dz (dimensieloos), incl. de ramp-afgeleiden:
-  // h' = A'·[Σa·sin + B·a4·sin4] + A·[Σa·k·cos + B'·a4·sin4 + B·a4·k4·cos4]
+  // h' = A'·[Σw·a·sin] + A·[Σw·a·k·cos + B'·a_n·sin_n]
   slopeAt(z) {
     if (z <= RAMP_A[0]) return 0;
     const A = smoothstep(RAMP_A[0], RAMP_A[1], z);
     const dA = smoothstepSlope(RAMP_A[0], RAMP_A[1], z);
     const B = smoothstep(RAMP_B[0], RAMP_B[1], z);
     const dB = smoothstepSlope(RAMP_B[0], RAMP_B[1], z);
-    const [o1, o2, o3, o4] = this.octaves;
-    const s4 = Math.sin(o4.k * z + o4.phi);
-    const sum =
-      o1.a * Math.sin(o1.k * z + o1.phi) +
-      o2.a * Math.sin(o2.k * z + o2.phi) +
-      o3.a * Math.sin(o3.k * z + o3.phi) +
-      B * o4.a * s4;
-    const dsum =
-      o1.a * o1.k * Math.cos(o1.k * z + o1.phi) +
-      o2.a * o2.k * Math.cos(o2.k * z + o2.phi) +
-      o3.a * o3.k * Math.cos(o3.k * z + o3.phi) +
-      dB * o4.a * s4 +
-      B * o4.a * o4.k * Math.cos(o4.k * z + o4.phi);
+    const os = this.octaves;
+    const last = os.length - 1;
+    let sum = 0;
+    let dsum = 0;
+    for (let i = 0; i <= last; i++) {
+      const o = os[i];
+      const w = i === last ? B : 1;
+      const sn = Math.sin(o.k * z + o.phi);
+      sum += w * o.a * sn;
+      dsum += w * o.a * o.k * Math.cos(o.k * z + o.phi);
+      if (i === last) dsum += dB * o.a * sn;
+    }
     return dA * sum + A * dsum;
+  }
+
+  // Laterale offset van de wegas in meters; exact 0 voor z <= 150.
+  curveAt(z) {
+    if (z <= RAMP_C[0]) return 0;
+    const C = smoothstep(RAMP_C[0], RAMP_C[1], z);
+    let sum = 0;
+    for (const o of this.curveOctaves) sum += o.a * Math.sin(o.k * z + o.phi);
+    return C * sum;
+  }
+
+  // Analytische dx/dz van de wegas (dimensieloos): x' = C'·Σ + C·Σ'.
+  curveSlopeAt(z) {
+    if (z <= RAMP_C[0]) return 0;
+    const C = smoothstep(RAMP_C[0], RAMP_C[1], z);
+    const dC = smoothstepSlope(RAMP_C[0], RAMP_C[1], z);
+    let sum = 0;
+    let dsum = 0;
+    for (const o of this.curveOctaves) {
+      sum += o.a * Math.sin(o.k * z + o.phi);
+      dsum += o.a * o.k * Math.cos(o.k * z + o.phi);
+    }
+    return dC * sum + C * dsum;
   }
 }
