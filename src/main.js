@@ -1,10 +1,15 @@
 // FIETS! — opstartpunt: renderer, menuflow en de game-loop.
 import * as THREE from 'three';
 import { CHARACTERS, BIKES, bikeById } from './data.js';
+import { STAGES, drawProfile } from './stages.js';
 import { buildRig } from './models.js';
 import { Showroom } from './menus.js';
 import { Race } from './game.js';
 import { sfx } from './audio.js';
+
+// Parcours-opties: index 0 = oneindig gegenereerd, daarna de vaste etappes.
+const STAGE_OPTIONS = [null, ...STAGES];
+const TYPE_LABELS = { vlak: 'VLAK', heuvel: 'HEUVELS', berg: 'BERGRIT' };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -16,10 +21,11 @@ document.body.prepend(renderer.domElement);
 
 const showroom = new Showroom(renderer);
 let race = null;
-let state = 'title'; // title | char | bike | race | over
+let state = 'title'; // title | char | bike | stage | race | over
 
 let charIdx = Math.min(CHARACTERS.length - 1, Number(localStorage.getItem('fiets.char') || 0));
 let bikeIdx = Math.min(BIKES.length - 1, Number(localStorage.getItem('fiets.bike') || 0));
+let stageIdx = Math.min(STAGE_OPTIONS.length - 1, Number(localStorage.getItem('fiets.stage') || 0));
 
 const el = (id) => document.getElementById(id);
 const screens = ['screen-title', 'screen-select', 'screen-gameover'];
@@ -47,23 +53,47 @@ function colorSwatch(color, type) {
   return `<div class="swatch" style="background:${hex}"><span class="type-badge ${type}">${type === 'race' ? 'RACE' : 'MTB'}</span></div>`;
 }
 
+function currentList() {
+  return state === 'char' ? CHARACTERS : state === 'bike' ? BIKES : STAGE_OPTIONS;
+}
+
+function currentIdx() {
+  return state === 'char' ? charIdx : state === 'bike' ? bikeIdx : stageIdx;
+}
+
+function setCurrentIdx(i) {
+  if (state === 'char') charIdx = i;
+  else if (state === 'bike') bikeIdx = i;
+  else stageIdx = i;
+}
+
 function renderCards() {
   const cards = el('select-cards');
   cards.innerHTML = '';
   cards.classList.toggle('bikes', state === 'bike');
-  const list = state === 'char' ? CHARACTERS : BIKES;
-  const selected = state === 'char' ? charIdx : bikeIdx;
+  cards.classList.toggle('stages', state === 'stage');
+  const list = currentList();
+  const selected = currentIdx();
   list.forEach((item, i) => {
     const card = document.createElement('div');
     card.className = 'card' + (i === selected ? ' selected' : '');
     if (state === 'char') {
       card.innerHTML = `${jerseySwatch(item.jersey)}<h3>${item.name}</h3><div class="card-title">${item.title}</div><p>${item.desc}</p>${statBars(item.stats)}`;
-    } else {
+    } else if (state === 'bike') {
       card.innerHTML = `${colorSwatch(item.color, item.type)}<h3>${item.name}</h3>${statBars(item.stats)}`;
+    } else if (item === null) {
+      // Willekeurig gegenereerd parcours (dobbelsteen).
+      card.innerHTML = `<div class="stage-profile dice">🎲</div><h3>Willekeurig</h3><div class="card-title">Oneindig parcours</div><p class="stage-meta">Elke rit een uniek parcours — hoe ver kom jij?</p>`;
+    } else {
+      card.innerHTML =
+        `<div class="stage-profile"><canvas width="196" height="60"></canvas></div>` +
+        `<h3>${item.name}</h3><div class="card-title">${item.sub}</div>` +
+        `<p class="stage-meta">${item.km} km · D+ ${item.dplus} m · <b class="stage-type ${item.type}">${TYPE_LABELS[item.type]}</b></p>`;
+      drawProfile(card.querySelector('canvas'), item.profile);
     }
     card.addEventListener('click', () => {
-      if ((state === 'char' ? charIdx : bikeIdx) === i) { confirmSelect(); return; }
-      if (state === 'char') charIdx = i; else bikeIdx = i;
+      if (currentIdx() === i) { confirmSelect(); return; }
+      setCurrentIdx(i);
       sfx.ensure();
       sfx.select();
       renderCards();
@@ -77,7 +107,7 @@ function renderCards() {
 
 function updateShowroom() {
   const char = CHARACTERS[charIdx];
-  const bike = state === 'bike' ? BIKES[bikeIdx] : bikeById(char.previewBike);
+  const bike = state === 'bike' || state === 'stage' ? BIKES[bikeIdx] : bikeById(char.previewBike);
   showroom.show(buildRig(char, bike));
 }
 
@@ -90,17 +120,23 @@ function showTitle() {
 function showSelect(kind) {
   state = kind;
   setScreen('screen-select');
-  el('select-title').textContent = kind === 'char' ? 'KIES JE RENNER' : 'KIES JE FIETS';
+  el('select-title').textContent =
+    kind === 'char' ? 'KIES JE RENNER' : kind === 'bike' ? 'KIES JE FIETS' : 'KIES JE ETAPPE';
   renderCards();
   updateShowroom();
+}
+
+function fmtTime(t) {
+  return `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 }
 
 function startRace() {
   localStorage.setItem('fiets.char', String(charIdx));
   localStorage.setItem('fiets.bike', String(bikeIdx));
+  localStorage.setItem('fiets.stage', String(stageIdx));
   setScreen(null);
   state = 'race';
-  race = new Race(renderer, CHARACTERS[charIdx], BIKES[bikeIdx], {
+  race = new Race(renderer, CHARACTERS[charIdx], BIKES[bikeIdx], STAGE_OPTIONS[stageIdx], {
     onQuit() {
       race.dispose();
       race = null;
@@ -108,8 +144,13 @@ function startRace() {
     },
     onGameOver(stats) {
       state = 'over';
+      const title = el('go-title');
+      title.textContent = stats.won ? 'ETAPPE GEWONNEN !' : 'CHUTE FINALE !';
+      title.classList.toggle('win', !!stats.won);
       el('go-stats').innerHTML =
-        `<div class="go-row"><span>Afstand</span><b>${(stats.dist / 1000).toFixed(2)} km</b></div>` +
+        (stats.stageName ? `<div class="go-row"><span>Etappe</span><b>${stats.stageName}</b></div>` : '') +
+        `<div class="go-row"><span>Afstand</span><b>${stats.distLabel}</b></div>` +
+        (stats.stageName ? `<div class="go-row"><span>Tijd</span><b>${fmtTime(stats.time)}</b></div>` : '') +
         `<div class="go-row"><span>Obstakels overleefd</span><b>${stats.jumps}</b></div>` +
         `<div class="go-row"><span>Topsnelheid</span><b>${Math.round(stats.maxSpeed)} km/u</b></div>` +
         `<div class="go-row"><span>Record</span><b>${(stats.best / 1000).toFixed(2)} km${stats.newBest ? ' — NIEUW RECORD! 🏆' : ''}</b></div>` +
@@ -123,7 +164,8 @@ function confirmSelect() {
   sfx.ensure();
   sfx.confirm();
   if (state === 'char') showSelect('bike');
-  else if (state === 'bike') startRace();
+  else if (state === 'bike') showSelect('stage');
+  else if (state === 'stage') startRace();
 }
 
 window.addEventListener('keydown', (e) => {
@@ -134,18 +176,20 @@ window.addEventListener('keydown', (e) => {
       sfx.confirm();
       showSelect('char');
     }
-  } else if (state === 'char' || state === 'bike') {
-    const list = state === 'char' ? CHARACTERS : BIKES;
-    let idx = state === 'char' ? charIdx : bikeIdx;
+  } else if (state === 'char' || state === 'bike' || state === 'stage') {
+    const list = currentList();
+    let idx = currentIdx();
     if (e.code === 'ArrowRight' || e.code === 'ArrowDown') idx = (idx + 1) % list.length;
     else if (e.code === 'ArrowLeft' || e.code === 'ArrowUp') idx = (idx + list.length - 1) % list.length;
     else if (e.code === 'Enter') { confirmSelect(); return; }
     else if (e.code === 'Escape') {
-      if (state === 'bike') showSelect('char'); else showTitle();
+      if (state === 'stage') showSelect('bike');
+      else if (state === 'bike') showSelect('char');
+      else showTitle();
       return;
     } else return;
     e.preventDefault();
-    if (state === 'char') charIdx = idx; else bikeIdx = idx;
+    setCurrentIdx(idx);
     sfx.select();
     renderCards();
     updateShowroom();

@@ -4,8 +4,12 @@
 // begrensd (~19%), onafhankelijk van de golflengte-jitter.
 // Daarnaast een horizontaal bochtenveld x(z) met dezelfde budget-aanpak:
 // curveAt geeft de laterale offset van de wegas, curveSlopeAt de koers dx/dz.
+// Etappe-modus: een vast waypoint-profiel (stages.js) vervangt de octaven;
+// er blijft een klein detail-octaaf overheen liggen zodat de weg niet
+// spiegelglad tussen de waypoints hangt.
 // GEEN three-import: deze module is puur wiskundig en in node testbaar.
 import { RNG } from './rng.js';
+import { profileHeight, profileSlope } from './stages.js';
 
 // Hellingsbudget per octaaf (zie ontwerp): Σs_i = 0.195.
 // Amplitudes NOOIT hardcoden — altijd afleiden als a = s / k.
@@ -48,15 +52,32 @@ function makeOctaves(rng, defs) {
   });
 }
 
+// Detail bovenop een etappeprofiel: ~3% extra helling max, puur textuur.
+const DETAIL_OCTAVES = [
+  { lambda: 47, s: 0.030 },
+  { lambda: 23, s: 0.012 },
+];
+const RAMP_D = [150, 300]; // detail fade-in na de vlakke start
+
 export class Terrain {
-  constructor(rng = new RNG((Math.random() * 2 ** 32) >>> 0)) {
+  constructor(rng = new RNG((Math.random() * 2 ** 32) >>> 0), profile = null) {
     this.octaves = makeOctaves(rng, OCTAVES);
     this.curveOctaves = makeOctaves(rng, CURVE_OCTAVES);
+    this.profile = profile;
+    this.detail = profile ? makeOctaves(rng, DETAIL_OCTAVES) : null;
   }
 
   // Hoogte in meters; exact 0 voor z <= 100 (vlakke start) en alle z < 0.
   // De laatste (kortste) octaaf staat op ramp B: "meer heuvels" na 1.2 km.
   heightAt(z) {
+    if (this.profile) {
+      let h = profileHeight(this.profile, z);
+      const D = smoothstep(RAMP_D[0], RAMP_D[1], z);
+      if (D > 0) {
+        for (const o of this.detail) h += D * o.a * Math.sin(o.k * z + o.phi);
+      }
+      return h;
+    }
     if (z <= RAMP_A[0]) return 0;
     const A = smoothstep(RAMP_A[0], RAMP_A[1], z);
     const B = smoothstep(RAMP_B[0], RAMP_B[1], z);
@@ -72,6 +93,18 @@ export class Terrain {
   // Analytische dh/dz (dimensieloos), incl. de ramp-afgeleiden:
   // h' = A'·[Σw·a·sin] + A·[Σw·a·k·cos + B'·a_n·sin_n]
   slopeAt(z) {
+    if (this.profile) {
+      let s = profileSlope(this.profile, z);
+      const D = smoothstep(RAMP_D[0], RAMP_D[1], z);
+      const dD = smoothstepSlope(RAMP_D[0], RAMP_D[1], z);
+      if (D > 0 || dD > 0) {
+        for (const o of this.detail) {
+          const sn = Math.sin(o.k * z + o.phi);
+          s += D * o.a * o.k * Math.cos(o.k * z + o.phi) + dD * o.a * sn;
+        }
+      }
+      return s;
+    }
     if (z <= RAMP_A[0]) return 0;
     const A = smoothstep(RAMP_A[0], RAMP_A[1], z);
     const dA = smoothstepSlope(RAMP_A[0], RAMP_A[1], z);

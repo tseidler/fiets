@@ -186,7 +186,7 @@ function bannerTexture(text, style) {
   return canvasTexture(1024, 140, (g, w, h) => {
     if (style === 'flamme') {
       g.fillStyle = '#d81e05';
-    } else if (style === 'polka') {
+    } else if (style === 'polka' || style === 'arrivee') {
       g.fillStyle = '#ffffff';
     } else if (style === 'sprint') {
       g.fillStyle = '#27b04b';
@@ -194,6 +194,19 @@ function bannerTexture(text, style) {
       g.fillStyle = '#ffd600';
     }
     g.fillRect(0, 0, w, h);
+    if (style === 'arrivee') {
+      // Geblokte finish-randen boven en onder.
+      const s = 20;
+      g.fillStyle = '#111111';
+      for (let row = 0; row < 2; row++) {
+        for (let x = 0; x < w / s; x++) {
+          if ((x + row) % 2 === 0) {
+            g.fillRect(x * s, row * s, s, s);
+            g.fillRect(x * s, h - s * (row + 1), s, s);
+          }
+        }
+      }
+    }
     if (style === 'polka') {
       g.fillStyle = '#e02020';
       for (let y = 0; y < 3; y++) {
@@ -209,6 +222,7 @@ function bannerTexture(text, style) {
     } else {
       g.fillStyle = style === 'flamme' || style === 'sprint' ? '#ffffff' : '#111111';
     }
+    if (style === 'arrivee') g.fillStyle = '#111111';
     g.font = 'bold 86px "Arial Black", Arial, sans-serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
@@ -277,6 +291,100 @@ function paveTextures() {
   const bump = new THREE.CanvasTexture(bumpC);
   bump.anisotropy = 4;
   return { map, bump };
+}
+
+// Kartonnen supportersborden — hoe schever en huiseliker, hoe beter.
+const SIGN_TEXTS = [
+  'ALLEZ\nOPI & OMI', 'GO TERRY\nGO !', 'CHAPEAU !', 'VENGA\nVENGA !',
+  'PLUS VITE\nPAPA !', 'TERRY Nº 1',
+];
+
+function signTexture(lines) {
+  return canvasTexture(256, 128, (g, w, h) => {
+    g.fillStyle = '#e8d9b0'; // karton
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = 'rgba(120,95,55,0.8)';
+    g.lineWidth = 6;
+    g.strokeRect(3, 3, w - 6, h - 6);
+    g.fillStyle = '#232018';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const ls = lines.split('\n');
+    g.font = `bold ${ls.length > 1 ? 34 : 40}px "Comic Sans MS", "Chalkboard SE", Arial, sans-serif`;
+    ls.forEach((l, i) => g.fillText(l, w / 2, h / 2 + (i - (ls.length - 1) / 2) * 42, w - 24));
+  });
+}
+
+// Rode rookpluim voor de fakkels (sprite, zachte radial falloff).
+function smokeTexture() {
+  const t = canvasTexture(64, 64, (g) => {
+    const grad = g.createRadialGradient(32, 32, 4, 32, 32, 30);
+    grad.addColorStop(0, 'rgba(242,64,48,0.9)');
+    grad.addColorStop(0.55, 'rgba(220,52,44,0.45)');
+    grad.addColorStop(1, 'rgba(200,40,40,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+  });
+  return t;
+}
+
+// Gevel voor de dorpshuisjes: pleisterwerk, twee ramen met luiken en
+// geraniums, en een deur tot aan de plint. Box-UV herhaalt de gevel op elke
+// zijde — prima op bermafstand.
+function houseTexture(wall, shutter) {
+  return canvasTexture(256, 192, (g, w, h) => {
+    g.fillStyle = wall;
+    g.fillRect(0, 0, w, h);
+    g.globalAlpha = 0.07;
+    g.fillStyle = '#8a7a60';
+    for (let i = 0; i < 40; i++) {
+      g.beginPath();
+      g.arc(Math.random() * w, Math.random() * h, 4 + Math.random() * 10, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.globalAlpha = 1;
+    g.fillStyle = 'rgba(90,80,66,0.5)'; // plint
+    g.fillRect(0, h - 18, w, 18);
+    for (const cx of [64, 192]) {
+      g.fillStyle = '#1d2430';
+      g.fillRect(cx - 18, 46, 36, 46);
+      g.strokeStyle = '#f5f2ea';
+      g.lineWidth = 3;
+      g.strokeRect(cx - 18, 46, 36, 46);
+      g.beginPath();
+      g.moveTo(cx, 46); g.lineTo(cx, 92);
+      g.moveTo(cx - 18, 69); g.lineTo(cx + 18, 69);
+      g.stroke();
+      g.fillStyle = shutter;
+      g.fillRect(cx - 30, 46, 11, 46);
+      g.fillRect(cx + 19, 46, 11, 46);
+      // Geraniums in de vensterbank.
+      for (let i = 0; i < 5; i++) {
+        g.fillStyle = i % 2 ? '#d8322a' : '#e85a52';
+        g.beginPath();
+        g.arc(cx - 14 + i * 7, 94, 3, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    g.fillStyle = shutter;
+    g.fillRect(112, h - 64, 32, 46);
+    g.fillStyle = '#e8d9b0';
+    g.beginPath();
+    g.arc(138, h - 42, 2.5, 0, Math.PI * 2); // deurknop
+    g.fill();
+  });
+}
+
+// Luifel van de camper: vrolijke oranje-witte strepen.
+function awningTexture() {
+  return canvasTexture(128, 64, (g, w, h) => {
+    for (let x = 0; x < w; x += 32) {
+      g.fillStyle = '#f0813c';
+      g.fillRect(x, 0, 16, h);
+      g.fillStyle = '#f6efe2';
+      g.fillRect(x + 16, 0, 16, h);
+    }
+  });
 }
 
 function barrierTexture() {
@@ -579,10 +687,13 @@ class Obstacles {
 }
 
 export class World {
-  constructor(scene, rng, ambiance, terrain) {
+  constructor(scene, rng, ambiance, terrain, stage = null) {
     this.scene = scene;
     this.terrain = terrain;
     this.wavers = [];
+    this.flares = []; // rode-rook-fakkels in het publiek, geanimeerd in update()
+    this.smokeTex = smokeTexture();
+    this.signTexes = SIGN_TEXTS.map((t) => signTexture(t));
 
     // Gescheiden streams: decor mag op wrap-momenten trekken zonder de
     // gameplay-reeks (course/obstakels) te verstoren.
@@ -649,6 +760,37 @@ export class World {
       }
     );
 
+    // Dorpshuisjes: af en toe een Frans huis of gehuchtje langs de route.
+    this.houses = new Scroller(scene, 5, 190,
+      () => this.makeHouse(),
+      (obj, z) => {
+        const zf = z + rand(-45, 45);
+        const side = rand(0, 1) < 0.5 ? -1 : 1;
+        obj.visible = rand(0, 1) < 0.72;
+        // 0.55 m ingegraven fundering: het terrein loopt onder de voetprint
+        // door (helling ≤ 19% × halve diepte) en mag geen kier tonen.
+        obj.position.set(side * rand(9.5, 17) + this.terrain.curveAt(zf), this.terrain.heightAt(zf) - 0.55, zf);
+        obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(zf)) + rand(-0.35, 0.35) + (side > 0 ? Math.PI : 0);
+      },
+      120
+    );
+
+    // Campers van fans, geparkeerd in de berm — vooral op de klimmen, zoals
+    // het hoort bij de Tour.
+    this.campers = new Scroller(scene, 3, 380,
+      () => this.makeCamper(),
+      (obj, z) => {
+        const zf = z + rand(-60, 60);
+        const side = rand(0, 1) < 0.5 ? -1 : 1;
+        obj.visible = this.terrain.slopeAt(zf) > 0.03 || rand(0, 1) < 0.3;
+        obj.position.set(side * rand(8.5, 12) + this.terrain.curveAt(zf), this.terrain.heightAt(zf) - 0.3, zf);
+        // Luifel is op +x gebouwd; draai hem naar de weg toe.
+        obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(zf)) + rand(-0.25, 0.25) + (side > 0 ? Math.PI : 0);
+        obj.rotation.x = -Math.atan(this.terrain.slopeAt(zf));
+      },
+      200
+    );
+
     // Zonnebloemvelden (gecentreerd gebouwd zodat de tilt rond het midden draait)
     this.sunflowers = new Scroller(scene, 4, 170,
       () => this.makeSunflowerPatch(),
@@ -672,6 +814,8 @@ export class World {
         const zf = z + rand(-8, 8);
         const climb = this.terrain.slopeAt(zf) > 0.035;
         obj.visible = climb || rand(0, 1) < 0.55;
+        // Fakkels alleen op de klimmen, en dan nog maar de helft van de keren.
+        if (obj.userData.flare) obj.userData.flare.visible = climb && rand(0, 1) < 0.5;
         obj.position.set(
           side * (climb ? rand(4.2, 5.2) : rand(4.3, 6.4)) + this.terrain.curveAt(zf),
           this.terrain.heightAt(zf) - 0.05,
@@ -716,13 +860,14 @@ export class World {
     // Eerste boog is altijd het Grand Départ
     this.setArchText(this.arches.items[0].obj, -1);
 
-    // Kilometerborden
+    // Kilometerborden (in etappe-modus in "echte" etappe-kilometers)
     this.kmSigns = new Scroller(scene, 2, 500,
       () => this.makeSign(1.3, 0.7),
       (obj, z) => {
         obj.position.set(ROAD_W / 2 + 1.2 + this.terrain.curveAt(z), this.terrain.heightAt(z) - 0.05, z);
         obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(z));
-        this.drawSign(obj, `${(z / 1000).toFixed(1)} KM`, '#ffffff', '#111111');
+        const label = stage ? `${Math.round(z * (stage.km / stage.length))} KM` : `${(z / 1000).toFixed(1)} KM`;
+        this.drawSign(obj, label, '#ffffff', '#111111');
       },
       500
     );
@@ -737,6 +882,15 @@ export class World {
       },
       900
     );
+
+    // Finish-boog voor etappes: vast op stage.length, met geblokte banner.
+    if (stage) {
+      const gz = stage.length;
+      const gate = this.makeFinishGate();
+      gate.position.set(this.terrain.curveAt(gz), this.terrain.heightAt(gz) - 0.05, gz);
+      gate.rotation.y = Math.atan(this.terrain.curveSlopeAt(gz));
+      scene.add(gate);
+    }
 
     this.obstacles = new Obstacles(scene, courseRng.fork(102), this.course, terrain);
   }
@@ -813,6 +967,7 @@ export class World {
   makeCrowd() {
     const g = new THREE.Group();
     const n = Math.floor(this.rand(5, 10));
+    let flareBuilt = false;
     for (let i = 0; i < n; i++) {
       const person = new THREE.Group();
       const color = new THREE.Color().setHSL(this.rand(0, 1), 0.7, 0.55);
@@ -825,7 +980,25 @@ export class World {
       const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 7), skinMat);
       head.position.y = 0.85;
       person.add(head);
-      if (this.rand(0, 1) < 0.45) {
+      // Petje (supporterspet, willekeurige kleur).
+      if (this.rand(0, 1) < 0.4) {
+        const cap = new THREE.Mesh(
+          new THREE.ConeGeometry(0.105, 0.09, 8),
+          new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(this.rand(0, 1), 0.75, 0.5), roughness: 0.8 })
+        );
+        cap.position.y = 0.93;
+        person.add(cap);
+      }
+      // Juichende armen, schuin omhoog.
+      for (const s of [-1, 1]) {
+        const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.032, 0.2, 3, 6), bodyMat);
+        arm.position.set(s * 0.2, 0.73, 0);
+        arm.rotation.z = -s * this.rand(0.55, 1.0);
+        person.add(arm);
+      }
+      // Attribuut: tricolore (35%) of kartonnen bord (23%).
+      const roll = this.rand(0, 1);
+      if (roll < 0.35) {
         const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.9, 5), bodyMat);
         pole.position.set(0.16, 0.95, 0);
         person.add(pole);
@@ -835,13 +1008,66 @@ export class World {
         );
         flag.position.set(0.4, 1.25, 0);
         person.add(flag);
+      } else if (roll < 0.58) {
+        const sign = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.56, 0.28),
+          new THREE.MeshStandardMaterial({ map: this.pick(this.signTexes), side: THREE.DoubleSide, roughness: 0.95 })
+        );
+        sign.position.set(0, 1.22, 0);
+        sign.rotation.z = this.rand(-0.15, 0.15);
+        person.add(sign);
+        const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.32, 5), bodyMat);
+        stick.position.set(0, 1.0, 0);
+        person.add(stick);
       }
+      // Hooguit één fakkelman per groep; zichtbaarheid regelt de placeFn
+      // (alleen op klimmen, en dan nog maar soms).
+      if (!flareBuilt && this.rand(0, 1) < 0.25) {
+        flareBuilt = true;
+        g.userData.flare = this.makeFlare(person);
+      }
+      person.scale.setScalar(this.rand(0.82, 1.1)); // kinderen en volwassenen
       person.position.set(this.rand(-0.9, 0.9), 0, this.rand(-1.8, 1.8));
       person.rotation.y = this.rand(-0.6, 0.6);
       g.add(person);
       this.wavers.push({ g: person, phase: this.rand(0, Math.PI * 2) });
     }
     return g;
+  }
+
+  // Rode vuurfakkel in een opgeheven hand: gloeiende tip + drie rook-sprites
+  // die in update() cyclisch opstijgen en vervagen.
+  makeFlare(person) {
+    const fl = new THREE.Group();
+    const stick = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.016, 0.016, 0.3, 5),
+      new THREE.MeshStandardMaterial({ color: 0x2a2c31, roughness: 0.8 })
+    );
+    stick.position.set(0.24, 1.02, 0);
+    stick.rotation.z = -0.35;
+    fl.add(stick);
+    const tipMat = new THREE.MeshStandardMaterial({
+      color: 0xff2a1a, emissive: 0xff3020, emissiveIntensity: 2.4, roughness: 0.4,
+    });
+    const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.018, 0.1, 6), tipMat);
+    tip.position.set(0.29, 1.16, 0);
+    tip.rotation.z = -0.35;
+    fl.add(tip);
+    const sprites = [];
+    const mats = [];
+    const offsets = [];
+    for (let i = 0; i < 3; i++) {
+      const m = new THREE.SpriteMaterial({ map: this.smokeTex, transparent: true, depthWrite: false, opacity: 0 });
+      const s = new THREE.Sprite(m);
+      s.position.set(0.31, 1.25, 0);
+      fl.add(s);
+      sprites.push(s);
+      mats.push(m);
+      offsets.push(i / 3);
+    }
+    person.add(fl);
+    this.flares.push({ node: fl, tipMat, sprites, mats, offsets, seed: this.rand(0, 10) });
+    return fl;
   }
 
   // Dichte publieksrij links+rechts (x ±4.4) over 12 m, als instanced meshes.
@@ -879,6 +1105,116 @@ export class World {
     if (heads.instanceColor) heads.instanceColor.needsUpdate = true;
     bodies.castShadow = true;
     g.add(bodies, heads);
+    return g;
+  }
+
+  // Frans dorpshuisje: gevel-texture op een box, piramidedak, schoorsteen.
+  makeHouse() {
+    const g = new THREE.Group();
+    const [wall, shutter, roofC] = this.pick([
+      ['#f2e6cf', '#3f6d44', 0xb0563c],
+      ['#e9d5bd', '#4a6f9e', 0x99503a],
+      ['#f6efe2', '#8a4a3a', 0x5a6170],
+    ]);
+    const w = this.rand(3.2, 4.6);
+    const d = this.rand(3.6, 5.2);
+    const hh = this.rand(2.5, 3.1);
+    const walls = new THREE.Mesh(
+      new THREE.BoxGeometry(w, hh, d),
+      new THREE.MeshStandardMaterial({ map: houseTexture(wall, shutter), roughness: 0.95 })
+    );
+    walls.position.y = hh / 2;
+    walls.castShadow = true;
+    g.add(walls);
+    // Piramidedak: 4-zijdige kegel, 45° gedraaid en naar de voetprint geschaald.
+    const roofH = this.rand(1.0, 1.5);
+    const roof = new THREE.Mesh(
+      new THREE.ConeGeometry(Math.SQRT1_2, 1, 4),
+      new THREE.MeshStandardMaterial({ color: roofC, roughness: 1, flatShading: true })
+    );
+    roof.rotation.y = Math.PI / 4;
+    roof.scale.set(w * 1.12, roofH, d * 1.12);
+    roof.position.y = hh + roofH / 2;
+    roof.castShadow = true;
+    g.add(roof);
+    const chimney = new THREE.Mesh(
+      new THREE.BoxGeometry(0.35, 0.7, 0.35),
+      new THREE.MeshStandardMaterial({ color: 0x9a8a76, roughness: 1 })
+    );
+    chimney.position.set(w * 0.28, hh + roofH * 0.75, d * 0.2);
+    g.add(chimney);
+    return g;
+  }
+
+  // Camper van fans: bak + cabine + wielen + uitgeklapte streepjesluifel
+  // (gebouwd aan de +x-kant; de placeFn draait hem naar de weg).
+  makeCamper() {
+    const g = new THREE.Group();
+    g.rotation.order = 'YXZ';
+    const white = new THREE.MeshStandardMaterial({ color: 0xf4f2ec, roughness: 0.6 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x23252c, roughness: 0.5 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.7, 4.2), white);
+    body.position.y = 1.25;
+    body.castShadow = true;
+    g.add(body);
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.0, 1.2), white);
+    cab.position.set(0, 0.9, 2.6);
+    cab.castShadow = true;
+    g.add(cab);
+    const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 0.06), dark);
+    windshield.position.set(0, 1.05, 3.18);
+    windshield.rotation.x = 0.25;
+    g.add(windshield);
+    // Vrolijke bies over de flank.
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.04, 0.18, 4.1), new THREE.MeshStandardMaterial({ color: 0xf0813c, roughness: 0.6 }));
+    stripe.position.y = 1.05;
+    g.add(stripe);
+    for (const [x, z] of [[-0.85, -1.4], [0.85, -1.4], [-0.85, 1.9], [0.85, 1.9]]) {
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.24, 12), dark);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(x, 0.34, z);
+      g.add(wheel);
+    }
+    // Luifel op palen, naar de wegkant uitgeklapt.
+    const awning = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.6, 1.3),
+      new THREE.MeshStandardMaterial({ map: awningTexture(), side: THREE.DoubleSide, roughness: 0.9 })
+    );
+    awning.rotation.x = -Math.PI / 2 + 0.18;
+    awning.rotation.y = Math.PI / 2;
+    awning.position.set(1.75, 1.95, 0);
+    g.add(awning);
+    for (const z of [-0.7, 0.7]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.85, 5), dark);
+      pole.position.set(2.4, 0.93, z);
+      g.add(pole);
+    }
+    return g;
+  }
+
+  // Finish-boog voor etappes: rode pilaren, geblokte ARRIVÉE-banner, vlaggen.
+  makeFinishGate() {
+    const g = new THREE.Group();
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0xd81e05, roughness: 0.6 });
+    for (const s of [-1, 1]) {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 4.6, 0.5), pillarMat);
+      p.position.set(s * (ROAD_W / 2 + 0.8), 2.3, 0);
+      p.castShadow = true;
+      g.add(p);
+      const flag = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.6, 0.4),
+        new THREE.MeshStandardMaterial({ map: tricolorTexture(), side: THREE.DoubleSide })
+      );
+      flag.position.set(s * (ROAD_W / 2 + 0.8) + 0.35, 4.9, 0);
+      g.add(flag);
+    }
+    const banner = new THREE.Mesh(
+      new THREE.PlaneGeometry(ROAD_W + 2.4, 1.3),
+      new THREE.MeshStandardMaterial({ map: bannerTexture('ARRIVÉE', 'arrivee'), roughness: 0.8 })
+    );
+    banner.rotation.y = Math.PI; // naar de naderende renner gericht
+    banner.position.y = 4.0;
+    g.add(banner);
     return g;
   }
 
@@ -1019,12 +1355,27 @@ export class World {
     for (const w of this.wavers) {
       w.g.position.y = Math.max(0, Math.sin(time * 2.4 + w.phase)) * 0.14;
     }
+    // Fakkels: flikkerende tip + drie rook-sprites die opstijgen en vervagen.
+    for (const fl of this.flares) {
+      if (!fl.node.visible) continue;
+      fl.tipMat.emissiveIntensity = 2.2 + Math.sin(time * 27 + fl.seed) * 1.0;
+      for (let i = 0; i < fl.sprites.length; i++) {
+        const p = (time * 0.4 + fl.offsets[i]) % 1;
+        const s = fl.sprites[i];
+        s.position.set(0.31 + Math.sin((p * 3 + fl.seed) * 2) * 0.12, 1.25 + p * 1.7, 0);
+        const sc = 0.3 + p * 0.85;
+        s.scale.set(sc, sc, 1);
+        fl.mats[i].opacity = (1 - p) * 0.55;
+      }
+    }
     this.roadChunks.update(playerZ, 80);
     this.grassChunks.update(playerZ, 80);
     this.trees.update(playerZ, 45);
     this.sunflowers.update(playerZ, 60);
     this.spectators.update(playerZ);
     this.hedges.update(playerZ, 20);
+    this.houses.update(playerZ, 60);
+    this.campers.update(playerZ, 50);
     // 200 m: dekt het banner-snap-venster (tot 176 m vóór de raster-z), anders
     // despawnt een vooruit-gesnapte zone-boog zichtbaar vlak voor de speler.
     this.arches.update(playerZ, 200);

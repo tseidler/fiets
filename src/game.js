@@ -10,9 +10,10 @@ import { sfx } from './audio.js';
 
 const GRAVITY = 22;
 const SLOPE_ACCEL = 9.0; // helling↔snelheid-koppeling (apart houden voor playtests)
-// Auto-trappen (J vasthouden): één pedaalslag per interval. Bewust langzamer
-// dan snel handmatig afwisselen (~14 m/s evenwicht vs 17+ top) zodat R/U
-// blijven lonen voor wie het tempo zelf wil maken.
+// Auto-trappen (J vasthouden): CONTINUE acceleratie met hetzelfde gemiddelde
+// vermogen als één pedaalslag per 0.28 s. Geen discrete snelheidspulsen, dus
+// geen schokkend beeld (FOV en camera-lerp volgen de snelheid). Evenwicht
+// ~14 m/s: bewust onder de top, zodat R/U-mashen blijft lonen.
 const AUTO_PEDAL_INTERVAL = 0.28;
 const MILESTONE_PHRASES = ['Allez allez!', 'Chapeau!', 'Formidable!', 'Het peloton is gelost!', 'Vive le vélo!', 'Tête de la course!'];
 
@@ -30,10 +31,12 @@ function pickWeighted(list, rng) {
 }
 
 export class Race {
-  constructor(renderer, char, bike, cb) {
+  constructor(renderer, char, bike, stage, cb) {
     this.renderer = renderer;
     this.char = char;
     this.bike = bike;
+    this.stage = stage || null; // null = oneindig gegenereerd parcours
+    this.kmFactor = stage ? stage.km / stage.length : 0;
     this.cb = cb;
 
     this.top = bike.top * char.mods.top;
@@ -57,7 +60,7 @@ export class Race {
     this.startZ = Math.max(0, Number(params.get('start')) || 0);
     const rng = new RNG(this.seed);
     this.ambiance = pickWeighted(AMBIANCES, rng.fork(0));
-    this.terrain = new Terrain(rng.fork(3));
+    this.terrain = new Terrain(rng.fork(3), this.stage ? this.stage.profile : null);
 
     const amb = this.ambiance;
     const hemi = new THREE.HemisphereLight(amb.hemiSky, amb.hemiGnd, amb.hemiI);
@@ -76,7 +79,7 @@ export class Race {
     this.scene.add(this.sun, this.sun.target);
     this.sunOff = amb.sunPos;
 
-    this.world = new World(this.scene, rng, this.ambiance, this.terrain);
+    this.world = new World(this.scene, rng, this.ambiance, this.terrain, this.stage);
     this.rig = buildRig(char, bike);
     // Voertuig-conventie: eerst yaw (bocht), dan pitch (helling), dan roll
     // (leunen in de bocht) — elk in het frame van de vorige.
@@ -99,7 +102,8 @@ export class Race {
     this.jumpsCleared = 0;
     this.lastKey = null;
     this.jHeld = false;
-    this.autoPedalT = 0;
+    this._autoHalf = 0;
+    this.rideTime = 0;
     this.pedalPhase = 0;
     this.pedalTarget = 0;
     this.crashed = false;
@@ -179,9 +183,9 @@ export class Race {
     }
   }
 
-  // Volle pedaalslag: handmatig (met de gedrukte toets) of automatisch via J
-  // (dan alterneert hij zelf verder op lastKey).
-  pedalStroke(key = this.lastKey === 'r' ? 'u' : 'r') {
+  // Volle pedaalslag bij goed afwisselend R/U-werk (J-modus accelereert
+  // continu in update() en komt hier niet).
+  pedalStroke(key) {
     this.speed = Math.min(this.top, this.speed + this.power * Math.max(0.15, 1 - this.speed / this.top));
     this.pedalTarget += Math.PI;
     sfx.pedal(key === 'r');
@@ -236,19 +240,31 @@ export class Race {
       } else {
         c.classList.add('hidden');
         this.phase = 'riding';
+        if (this.stage) this.toast(`ÉTAPE : ${this.stage.name}`, 2600);
       }
     }
+    if (this.phase === 'riding') this.rideTime += dt; // incl. crash-tijd: straf telt mee
 
     if (this.phase === 'riding' && !this.crashed) {
-      // Auto-trappen: J vasthouden geeft pedaalslagen op vaste cadans.
+      // Auto-trappen: continue acceleratie (zelfde gemiddelde vermogen als
+      // discrete slagen, maar zonder pulsen). De cranks draaien vloeiend mee,
+      // iets sneller naarmate je harder rijdt; het HUD-tikje en de R/U-chips
+      // wisselen per halve omwenteling.
       if (this.jHeld) {
-        this.autoPedalT -= dt;
-        if (this.autoPedalT <= 0) {
-          this.pedalStroke();
-          this.autoPedalT = AUTO_PEDAL_INTERVAL;
+        this.speed = Math.min(
+          this.top,
+          this.speed + (this.power / AUTO_PEDAL_INTERVAL) * Math.max(0.15, 1 - this.speed / this.top) * dt
+        );
+        const cadence = 0.55 + 0.65 * Math.min(1.25, this.speed / this.top);
+        this.pedalTarget += (Math.PI / AUTO_PEDAL_INTERVAL) * cadence * dt;
+        const half = Math.floor(this.pedalTarget / Math.PI);
+        if (half !== this._autoHalf) {
+          this._autoHalf = half;
+          const key = this.lastKey === 'r' ? 'u' : 'r';
+          sfx.pedal(key === 'r');
+          this.lastKey = key;
+          this.setExpectedKey(key === 'r' ? 'u' : 'r');
         }
-      } else {
-        this.autoPedalT = 0; // eerstvolgende J-druk trapt direct
       }
       // Zone-check: toast bij binnenrijden van een speciale zone
       const zn = this.world.course.zoneAt(this.z);
@@ -275,6 +291,13 @@ export class Race {
       }
       this.z += this.speed * dt;
       this.maxSpeed = Math.max(this.maxSpeed, this.speed);
+
+      // Finishlijn van een etappe gehaald: gewonnen!
+      if (this.stage && this.z >= this.stage.length) {
+        sfx.fanfare();
+        this.finish(true);
+        return;
+      }
 
       if (!this.grounded) {
         this.vy -= GRAVITY * dt;
@@ -308,10 +331,11 @@ export class Race {
         }
       }
 
-      // Mijlpalen
+      // Mijlpalen (in etappe-modus in "echte" kilometers)
       if (this.z >= this.nextMilestone) {
         const km = Math.round(this.nextMilestone / 1000);
-        this.toast(`${km} km — ${MILESTONE_PHRASES[km % MILESTONE_PHRASES.length]}`);
+        const label = this.stage ? Math.round(this.nextMilestone * this.kmFactor) : km;
+        this.toast(`${label} km — ${MILESTONE_PHRASES[km % MILESTONE_PHRASES.length]}`);
         sfx.fanfare();
         this.nextMilestone += 1000;
       }
@@ -423,12 +447,14 @@ export class Race {
 
     this.world.update(this.z, dt, this.time);
 
-    // HUD
+    // HUD — in etappe-modus telt de teller in "echte" kilometers naar de finish
     this.hud.speed.textContent = String(Math.round(this.speed * 3.6));
-    this.hud.dist.textContent = this.z < 1000 ? `${Math.floor(this.z)} m` : `${(this.z / 1000).toFixed(2)} km`;
+    this.hud.dist.textContent = this.stage
+      ? `${(this.z * this.kmFactor).toFixed(1)} / ${this.stage.km} km`
+      : this.z < 1000 ? `${Math.floor(this.z)} m` : `${(this.z / 1000).toFixed(2)} km`;
   }
 
-  finish() {
+  finish(won = false) {
     this.frozen = true;
     this.hud.root.classList.add('hidden');
     this.hud.toast.classList.add('hidden');
@@ -436,11 +462,17 @@ export class Race {
     if (newBest) localStorage.setItem('fiets.best', String(Math.floor(this.z)));
     this.cb.onGameOver({
       dist: this.z,
+      distLabel: this.stage
+        ? `${(Math.min(this.z, this.stage.length) * this.kmFactor).toFixed(1)} / ${this.stage.km} km`
+        : `${(this.z / 1000).toFixed(2)} km`,
       jumps: this.jumpsCleared,
       maxSpeed: this.maxSpeed * 3.6,
       best: Math.max(this.best, Math.floor(this.z)),
       newBest,
       seed: this.seed,
+      won,
+      time: this.rideTime,
+      stageName: this.stage ? this.stage.name : null,
     });
   }
 

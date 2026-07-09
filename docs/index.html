@@ -9,7 +9,9 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; overflow: hidden; background: #0d1017; }
     body { font-family: 'Avenir Next', 'Helvetica Neue', Arial, sans-serif; color: #fff; }
-    canvas { position: fixed; inset: 0; z-index: 0; display: block; }
+    /* Alleen het Three.js-rendercanvas (direct kind van body) — profiel-
+       canvassen in de etappekaartjes moeten gewoon in de flow staan. */
+    body > canvas { position: fixed; inset: 0; z-index: 0; display: block; }
     #ui { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
     .hidden { display: none !important; }
 
@@ -122,12 +124,28 @@
       font-family: 'Arial Black', sans-serif; font-style: italic; font-size: clamp(40px, 8vw, 84px);
       color: #ff3b4e; text-shadow: 4px 4px 0 rgba(0,0,0,0.5); transform: skew(-6deg);
     }
+    #screen-gameover h1.win { color: #ffd600; text-shadow: 4px 4px 0 #d81e05, 8px 8px 0 rgba(0,0,0,0.45); }
+
+    /* Etappekaartjes: TdF-stijl mini-profiel bovenin */
+    #select-cards.stages .card { width: 224px; }
+    .stage-profile {
+      height: 60px; background: #0d1017; border-radius: 8px;
+      border: 2px solid rgba(255,255,255,0.12); overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .stage-profile canvas { display: block; }
+    .stage-profile.dice { font-size: 36px; }
+    .stage-meta { font-size: 12.5px; color: #b9c2d4; line-height: 1.4; }
+    .stage-type { font-weight: 900; letter-spacing: 0.5px; }
+    .stage-type.vlak { color: #6ee76e; }
+    .stage-type.heuvel { color: #ffd600; }
+    .stage-type.berg { color: #ff8fa3; }
     #go-stats { background: rgba(20,24,36,0.9); border: 3px solid #39404f; border-radius: 14px; padding: 22px 30px; min-width: 340px; }
     .go-row { display: flex; justify-content: space-between; gap: 40px; font-size: 19px; padding: 6px 0; }
     .go-row span { color: #9aa4b8; font-weight: 600; }
     .go-row b { color: #ffd600; }
   </style>
-  <script type="module" crossorigin src="./assets/index-DHwythh1.js"></script>
+  <script type="module" crossorigin src="./assets/index-WhcY9Aj6.js"></script>
 </head>
 <body>
   <div id="ui">
@@ -169,7 +187,7 @@
     <div id="flash"></div>
 
     <div id="screen-gameover" class="screen hidden">
-      <h1>CHUTE FINALE !</h1>
+      <h1 id="go-title">CHUTE FINALE !</h1>
       <div id="go-stats"></div>
       <div class="blink">ENTER = OPNIEUW &nbsp;·&nbsp; ESC = MENU</div>
     </div>
