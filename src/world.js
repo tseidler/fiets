@@ -1007,6 +1007,7 @@ export class World {
           new THREE.MeshStandardMaterial({ map: this.flagTex, side: THREE.DoubleSide, roughness: 0.9 })
         );
         flag.position.set(0.4, 1.25, 0);
+        flag.rotation.y = Math.PI; // voorkant naar de naderende renner (-z)
         person.add(flag);
       } else if (roll < 0.58) {
         const sign = new THREE.Mesh(
@@ -1014,6 +1015,9 @@ export class World {
           new THREE.MeshStandardMaterial({ map: this.pick(this.signTexes), side: THREE.DoubleSide, roughness: 0.95 })
         );
         sign.position.set(0, 1.22, 0);
+        // Tekstzijde naar de naderende renner (-z), zoals de spandoeken —
+        // anders lees je de achterkant gespiegeld.
+        sign.rotation.y = Math.PI;
         sign.rotation.z = this.rand(-0.15, 0.15);
         person.add(sign);
         const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.32, 5), bodyMat);
