@@ -375,6 +375,22 @@ function houseTexture(wall, shutter) {
   });
 }
 
+// Uithangbord van de frietkraam.
+function foodSignTexture() {
+  return canvasTexture(256, 80, (g, w, h) => {
+    g.fillStyle = '#d81e05';
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#ffd600';
+    g.lineWidth = 6;
+    g.strokeRect(4, 4, w - 8, h - 8);
+    g.fillStyle = '#ffd600';
+    g.font = '900 46px "Arial Black", Arial, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('FRITES', w / 2, h / 2 + 2);
+  });
+}
+
 // Luifel van de camper: vrolijke oranje-witte strepen.
 function awningTexture() {
   return canvasTexture(128, 64, (g, w, h) => {
@@ -457,7 +473,7 @@ export const AMBIANCES = [
 export const ZONES = {
   etappe: { len: [500, 900], minDist: 0, weight: 5, fx: { w: {}, spacing: 1.0, cluster: 0.18 } },
   publiek: { len: [280, 460], minDist: 400, weight: 3, fx: { w: { barrier: 3, cones: 2, pave: 0 }, spacing: 0.9, cluster: 0.25 }, toast: 'PUBLIEKSHAAG !' },
-  kasseien: { len: [180, 280], minDist: 800, weight: 2, fx: { w: { pave: 8, hay: 0.3, log: 0, barrier: 0 }, spacing: 0.3, cluster: 0 }, toast: 'SECTEUR PAVÉ !', banner: ['SECTEUR PAVÉ', 'polka'] },
+  kasseien: { len: [180, 280], minDist: 800, weight: 2, fx: { w: { pave: 8, hay: 0.3, log: 0, barrier: 0, ducks: 0, banana: 0, pileup: 0, bear: 0 }, spacing: 0.3, cluster: 0 }, toast: 'SECTEUR PAVÉ !', banner: ['SECTEUR PAVÉ', 'polka'] },
   sprint: { len: [300, 450], minDist: 1200, weight: 1.5, fx: { w: { cones: 1.5, barrier: 0.5, log: 0, pave: 0 }, spacing: 1.6, cluster: 0, drag: 0.8 }, toast: 'SPRINT INTERMÉDIAIRE !', banner: ['SPRINT', 'sprint'] },
 };
 const SPECIALS = ['publiek', 'kasseien', 'sprint'];
@@ -536,6 +552,12 @@ const OB_DEFS = {
   log: { h: 0.64, d: 0.7, weight: 2, minDist: 350 },
   barrier: { h: 0.85, d: 0.3, weight: 1.5, minDist: 700 },
   pave: { h: 0.05, d: 10, weight: 1.7, minDist: 500, pave: true },
+  // De pretobstakels: overstekende eendjes, een bananenpak dat oversteekt en
+  // valt, een valpartij van 3-5 renners en (heel af en toe) een beer.
+  ducks: { h: 0.45, d: 0.9, weight: 1.6, minDist: 250 },
+  banana: { h: 0.7, d: 0.6, weight: 1.2, minDist: 500 },
+  pileup: { h: 0.75, d: 2.4, weight: 1.2, minDist: 700 },
+  bear: { h: 0.88, d: 0.9, weight: 1.0, minDist: 900 },
 };
 
 class Obstacles {
@@ -558,6 +580,19 @@ class Obstacles {
       barrier: new THREE.MeshStandardMaterial({ map: barrierTexture(), roughness: 0.8 }),
       pave: new THREE.MeshStandardMaterial({ map: paveT.map, bumpMap: paveT.bump, bumpScale: 0.5, roughness: 1 }),
       post: new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.8 }),
+      // Pretobstakels (gedeeld, zodat gepoolde objecten niets lekken)
+      fur: new THREE.MeshStandardMaterial({ color: 0x7a4a26, roughness: 1 }),
+      furDark: new THREE.MeshStandardMaterial({ color: 0x5b3319, roughness: 1 }),
+      snout: new THREE.MeshStandardMaterial({ color: 0xcfa06a, roughness: 0.9 }),
+      duckY: new THREE.MeshStandardMaterial({ color: 0xf7d354, roughness: 0.8 }),
+      duckW: new THREE.MeshStandardMaterial({ color: 0xfdf6da, roughness: 0.8 }),
+      beak: new THREE.MeshStandardMaterial({ color: 0xf07818, roughness: 0.7 }),
+      banana: new THREE.MeshStandardMaterial({ color: 0xffd93b, roughness: 0.65 }),
+      suit: new THREE.MeshStandardMaterial({ color: 0x2b2417, roughness: 0.9 }),
+      lycra: new THREE.MeshStandardMaterial({ color: 0x17181c, roughness: 0.8 }),
+      jerseys: [0xd62828, 0x1e50c8, 0x27b04b, 0xeceff4, 0xf77f00].map(
+        (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 })
+      ),
     };
   }
 
@@ -605,6 +640,117 @@ class Obstacles {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(ROAD_W, 0.24, 10), this.mats.pave);
       strip.position.y = -0.04;
       g.add(strip);
+    } else if (id === 'ducks') {
+      // Moeder eend + vier kuikens, gebouwd kijkend naar +x; de actor-groep
+      // waggelt in update() heen en weer over de weg.
+      const actor = new THREE.Group();
+      g.userData.actor = actor;
+      g.userData.ducks = [];
+      for (let i = 0; i < 5; i++) {
+        const duck = new THREE.Group();
+        const big = i === 0;
+        const bodyMat = big ? this.mats.duckW : this.mats.duckY;
+        const s = big ? 1 : 0.55;
+        const body = new THREE.Mesh(new THREE.SphereGeometry(0.16 * s, 9, 7), bodyMat);
+        body.scale.set(1.35, 1, 1);
+        body.position.y = 0.17 * s;
+        duck.add(body);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.09 * s, 8, 6), bodyMat);
+        head.position.set(0.16 * s, 0.36 * s, 0);
+        duck.add(head);
+        const beak = new THREE.Mesh(new THREE.ConeGeometry(0.035 * s, 0.09 * s, 6), this.mats.beak);
+        beak.rotation.z = -Math.PI / 2;
+        beak.position.set(0.27 * s, 0.35 * s, 0);
+        duck.add(beak);
+        duck.position.x = -i * 0.42; // kuikens dribbelen achter mama aan
+        actor.add(duck);
+        g.userData.ducks.push(duck);
+      }
+      g.add(actor);
+    } else if (id === 'banana') {
+      // Persoon in bananenpak, pivot bij de voeten (valt om rond de origin).
+      const actor = new THREE.Group();
+      g.userData.actor = actor;
+      const suit = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.7, 4, 10), this.mats.banana);
+      suit.scale.set(0.8, 1, 0.62);
+      suit.position.y = 0.72;
+      suit.rotation.z = 0.16; // kenmerkende bananenkromming
+      actor.add(suit);
+      // Gezichtsgat + armen + benen in het zwart.
+      const face = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 6), this.mats.suit);
+      face.scale.set(1, 1.25, 0.5);
+      face.position.set(0.03, 0.95, -0.13); // gezicht naar de naderende renner
+      actor.add(face);
+      for (const s of [-1, 1]) {
+        const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.24, 3, 6), this.mats.suit);
+        arm.position.set(s * 0.24, 0.78, 0);
+        arm.rotation.z = -s * 1.9; // armen wijd — rennen!
+        actor.add(arm);
+        const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.24, 3, 6), this.mats.suit);
+        leg.position.set(s * 0.08, 0.17, 0);
+        actor.add(leg);
+      }
+      g.add(actor);
+    } else if (id === 'pileup') {
+      // Valpartij: 3-5 gevallen renners met fietsen plat op het asfalt.
+      const n = 3 + Math.floor(this.rng.next() * 3);
+      for (let i = 0; i < n; i++) {
+        const u = new THREE.Group();
+        const jer = this.mats.jerseys[Math.floor(this.rng.next() * this.mats.jerseys.length)];
+        // Fiets op zijn kant: twee platte wielen + framebuis.
+        for (const [wx, wz] of [[0.34, 0], [-0.34, 0.14]]) {
+          const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.025, 8, 20), this.mats.lycra);
+          wheel.rotation.x = Math.PI / 2;
+          wheel.position.set(wx, 0.05, wz);
+          u.add(wheel);
+        }
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.035, 0.07), jer);
+        frame.position.set(0, 0.08, 0.06);
+        frame.rotation.y = 0.25;
+        u.add(frame);
+        // Renner plat naast de fiets, benen gebogen.
+        const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.36, 3, 8), jer);
+        body.rotation.z = Math.PI / 2;
+        body.rotation.y = this.rng.range(-0.5, 0.5);
+        body.position.set(0.1, 0.13, 0.5);
+        u.add(body);
+        const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), this.mats.jerseys[(i + 2) % this.mats.jerseys.length]);
+        helmet.position.set(0.42, 0.11, 0.55);
+        u.add(helmet);
+        const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.3, 3, 6), this.mats.lycra);
+        leg.rotation.z = Math.PI / 2 - 0.5;
+        leg.position.set(-0.25, 0.16, 0.55);
+        u.add(leg);
+        u.position.set(-2.3 + (i * 4.6) / Math.max(1, n - 1) + this.rng.range(-0.3, 0.3), 0, this.rng.range(-0.9, 0.9));
+        u.rotation.y = this.rng.next() * Math.PI * 2;
+        g.add(u);
+      }
+    } else if (id === 'bear') {
+      // Beer op vier poten, licht schuin naar de naderende renner gedraaid.
+      const bear = new THREE.Group();
+      bear.rotation.y = -0.5;
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 10), this.mats.fur);
+      body.scale.set(0.8, 0.65, 1.15);
+      body.position.y = 0.52;
+      bear.add(body);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.23, 10, 8), this.mats.fur);
+      head.position.set(0, 0.76, -0.52); // kop naar -z: kijkt de renner aan
+      bear.add(head);
+      const snout = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), this.mats.snout);
+      snout.scale.set(1, 0.8, 1.1);
+      snout.position.set(0, 0.7, -0.7);
+      bear.add(snout);
+      for (const s of [-1, 1]) {
+        const ear = new THREE.Mesh(new THREE.SphereGeometry(0.075, 6, 5), this.mats.furDark);
+        ear.position.set(s * 0.16, 0.95, -0.47);
+        bear.add(ear);
+        for (const zz of [-0.34, 0.36]) {
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.42, 8), this.mats.furDark);
+          leg.position.set(s * 0.24, 0.21, zz);
+          bear.add(leg);
+        }
+      }
+      g.add(bear);
     }
     g.traverse((o) => {
       if (o.isMesh) {
@@ -615,7 +761,7 @@ class Obstacles {
     return g;
   }
 
-  spawn(z, dist, fx) {
+  spawn(z, dist, fx, time) {
     const ids = Object.keys(OB_DEFS).filter((id) =>
       OB_DEFS[id].minDist <= dist &&
       (fx.w[id] ?? 1) > 0 &&
@@ -641,14 +787,50 @@ class Obstacles {
       0
     );
     this.scene.add(obj);
-    this.active.push({ id, obj, z, h: def.h, d: def.d, pave: !!def.pave, counted: false, oy });
+    // t0: spawn-tijd voor de geanimeerde obstakels (eendjes, bananenpak);
+    // pooled hergebruik herstart zo vanzelf hun act.
+    this.active.push({ id, obj, z, h: def.h, d: def.d, pave: !!def.pave, counted: false, oy, t0: time });
     return def;
   }
 
-  update(playerZ) {
+  // Eendjes waggelen heen en weer over de weg, kuikens achter mama aan.
+  animDucks(o, time) {
+    const tt = time - o.t0;
+    const per = 12;
+    const ph = (tt % per) / per;
+    const fwd = ph < 0.5;
+    const lin = fwd ? ph * 2 : (1 - ph) * 2;
+    const a = o.obj.userData.actor;
+    a.position.x = -2.8 + lin * 5.6;
+    a.rotation.y = fwd ? 0 : Math.PI;
+    const ducks = o.obj.userData.ducks;
+    for (let i = 0; i < ducks.length; i++) {
+      ducks[i].position.y = Math.abs(Math.sin(time * 7 + i * 1.1)) * 0.06;
+      ducks[i].rotation.x = Math.sin(time * 7 + i * 1.1) * 0.12;
+    }
+  }
+
+  // Bananenpak rent de weg over, struikelt en blijft liggen (pivot bij de
+  // voeten, dus de val draait om de origin).
+  animBanana(o, time) {
+    const a = o.obj.userData.actor;
+    const age = time - o.t0;
+    const WALK = 2.4;
+    const FALL = 0.4;
+    if (age < WALK) {
+      a.position.x = -4.6 + (age / WALK) * 5.5;
+      a.rotation.z = Math.sin(time * 10) * 0.14; // rent waggelend over
+    } else {
+      const f = Math.min(1, (age - WALK) / FALL);
+      a.position.x = 0.9 + f * 0.2;
+      a.rotation.z = -f * (Math.PI / 2 - 0.06) + (f >= 1 ? Math.sin(time * 2.2) * 0.015 : 0);
+    }
+  }
+
+  update(playerZ, time) {
     while (this.nextZ < playerZ + 320) {
       const zone = this.course.zoneAt(this.nextZ);
-      const def = this.spawn(this.nextZ, playerZ, zone.fx);
+      const def = this.spawn(this.nextZ, playerZ, zone.fx, time);
       const base = 110 - Math.min(62, (playerZ / 5000) * 62); // de enige dichtheidsbron
       if (!def.pave && !this.justClustered && this.rng.chance(zone.fx.cluster * Math.min(1, playerZ / 3000))) {
         this.nextZ += def.d + this.rng.range(15, 22); // cluster: 2e obstakel kort erna
@@ -666,6 +848,11 @@ class Obstacles {
         this.active.splice(i, 1);
       }
     }
+    // Levende obstakels animeren (na spawn/despawn, dus alleen actieve).
+    for (const o of this.active) {
+      if (o.id === 'ducks') this.animDucks(o, time);
+      else if (o.id === 'banana') this.animBanana(o, time);
+    }
   }
 
   // Gepoolde obstakels staan buiten de scene en ontsnappen aan
@@ -679,9 +866,11 @@ class Obstacles {
       }
     }
     for (const m of Object.values(this.mats)) {
-      if (m.map) m.map.dispose();
-      if (m.bumpMap) m.bumpMap.dispose();
-      m.dispose();
+      for (const mm of Array.isArray(m) ? m : [m]) {
+        if (mm.map) mm.map.dispose();
+        if (mm.bumpMap) mm.bumpMap.dispose();
+        mm.dispose();
+      }
     }
   }
 }
@@ -725,18 +914,31 @@ export class World {
     this.buildMountains();
     this.buildClouds();
 
-    // Bomen langs de route
+    // Bomen en struiken langs de route
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
     const pineMat = new THREE.MeshStandardMaterial({ color: 0x2d6a34, roughness: 1 });
     const leafMat = new THREE.MeshStandardMaterial({ color: 0x4f9a3f, roughness: 1 });
+    const bushMat = new THREE.MeshStandardMaterial({ color: 0x3d7a33, roughness: 1 });
     this.trees = new Scroller(scene, 28, 22,
       () => {
         const t = new THREE.Group();
+        const kind = rand(0, 1);
+        if (kind < 0.22) {
+          // Struik: cluster lage bollen, geen stam.
+          for (let i = 0; i < 3; i++) {
+            const blob = new THREE.Mesh(new THREE.SphereGeometry(rand(0.35, 0.55), 8, 6), bushMat);
+            blob.scale.y = 0.75;
+            blob.position.set(rand(-0.35, 0.35), rand(0.2, 0.4), rand(-0.35, 0.35));
+            blob.castShadow = true;
+            t.add(blob);
+          }
+          return t;
+        }
         const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 1.2, 7), trunkMat);
         trunk.position.y = 0.6;
         trunk.castShadow = true;
         t.add(trunk);
-        if (rand(0, 1) < 0.5) {
+        if (kind < 0.61) {
           for (let i = 0; i < 3; i++) {
             const cone = new THREE.Mesh(new THREE.ConeGeometry(0.9 - i * 0.22, 1.0, 8), pineMat);
             cone.position.y = 1.3 + i * 0.62;
@@ -760,6 +962,20 @@ export class World {
       }
     );
 
+    // Hoog berm-gras: instanced pollen vlak langs de wegrand. De patch is
+    // 8 m lang en draait met de bocht mee, anders steken de uiteinden bij
+    // een krappe bocht de weg op.
+    this.grassTufts = new Scroller(scene, 10, 32,
+      () => this.makeGrassTuft(),
+      (obj, z) => {
+        const zf = z + rand(-8, 8);
+        const side = rand(0, 1) < 0.5 ? -1 : 1;
+        obj.position.set(side * rand(4.7, 6.5) + this.terrain.curveAt(zf), this.terrain.heightAt(zf) - 0.02, zf);
+        obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(zf));
+        obj.rotation.x = -Math.atan(this.terrain.slopeAt(zf));
+      }
+    );
+
     // Dorpshuisjes: af en toe een Frans huis of gehuchtje langs de route.
     this.houses = new Scroller(scene, 5, 190,
       () => this.makeHouse(),
@@ -775,16 +991,17 @@ export class World {
       120
     );
 
-    // Campers van fans, geparkeerd in de berm — vooral op de klimmen, zoals
-    // het hoort bij de Tour.
-    this.campers = new Scroller(scene, 3, 380,
-      () => this.makeCamper(),
+    // Campers en foodtrucks van fans, geparkeerd in de berm — vooral op de
+    // klimmen en bij publiekszones, zoals het hoort bij de Tour.
+    this.vehicles = new Scroller(scene, 4, 290,
+      (i) => (i % 2 === 0 ? this.makeCamper() : this.makeFoodTruck()),
       (obj, z) => {
         const zf = z + rand(-60, 60);
         const side = rand(0, 1) < 0.5 ? -1 : 1;
-        obj.visible = this.terrain.slopeAt(zf) > 0.03 || rand(0, 1) < 0.3;
+        obj.visible = this.terrain.slopeAt(zf) > 0.03 ||
+          this.course.zoneAt(zf).type === 'publiek' || rand(0, 1) < 0.4;
         obj.position.set(side * rand(8.5, 12) + this.terrain.curveAt(zf), this.terrain.heightAt(zf) - 0.3, zf);
-        // Luifel is op +x gebouwd; draai hem naar de weg toe.
+        // Luifel/loket is op +x gebouwd; draai hem naar de weg toe.
         obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(zf)) + rand(-0.25, 0.25) + (side > 0 ? Math.PI : 0);
         obj.rotation.x = -Math.atan(this.terrain.slopeAt(zf));
       },
@@ -813,9 +1030,12 @@ export class World {
         const side = rand(0, 1) < 0.5 ? -1 : 1;
         const zf = z + rand(-8, 8);
         const climb = this.terrain.slopeAt(zf) > 0.035;
-        obj.visible = climb || rand(0, 1) < 0.55;
-        // Fakkels alleen op de klimmen, en dan nog maar de helft van de keren.
-        if (obj.userData.flare) obj.userData.flare.visible = climb && rand(0, 1) < 0.5;
+        const inPubliek = this.course.zoneAt(zf).type === 'publiek';
+        obj.visible = climb || inPubliek || rand(0, 1) < 0.55;
+        // Fakkels: bijna altijd in publiekszones, op klimmen de helft.
+        if (obj.userData.flare) {
+          obj.userData.flare.visible = inPubliek ? rand(0, 1) < 0.85 : climb && rand(0, 1) < 0.5;
+        }
         obj.position.set(
           side * (climb ? rand(4.2, 5.2) : rand(4.3, 6.4)) + this.terrain.curveAt(zf),
           this.terrain.heightAt(zf) - 0.05,
@@ -827,10 +1047,12 @@ export class World {
     );
 
     // Publiekshaag: dichte rijen die alleen zichtbaar zijn in publiekszones.
+    // Bij een haag hoort bijna altijd rode fakkelrook.
     this.hedges = new Scroller(scene, 12, 12,
       () => this.makeHedgeRow(),
       (obj, z) => {
         obj.visible = this.course.zoneAt(z).type === 'publiek';
+        for (const fl of obj.userData.flares) fl.visible = rand(0, 1) < 0.85;
         obj.position.set(this.terrain.curveAt(z), this.terrain.heightAt(z) - 0.05, z);
         obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(z));
         obj.rotation.x = -Math.atan(this.terrain.slopeAt(z));
@@ -964,49 +1186,87 @@ export class World {
     return g;
   }
 
+  // Eén toeschouwer: benen, heup, romp, hoofd met haar of pet, en armen die
+  // aan de schouder scharnieren zodat ze in update() echt kunnen juichen.
+  makePerson() {
+    const p = new THREE.Group();
+    const shirt = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(this.rand(0, 1), 0.7, 0.55), roughness: 0.8 });
+    const pants = new THREE.MeshStandardMaterial({ color: this.pick([0x2b3a55, 0x3a3f47, 0x5b4632, 0x223327, 0x6e7681]), roughness: 0.9 });
+    const skin = new THREE.MeshStandardMaterial({ color: this.pick([0xe0ac69, 0xc68642, 0x8d5524, 0xf1c27d]), roughness: 0.8 });
+    for (const s of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.22, 3, 6), pants);
+      leg.position.set(s * 0.075, 0.19, 0);
+      p.add(leg);
+    }
+    const hips = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), pants);
+    hips.scale.set(1.15, 0.7, 0.9);
+    hips.position.y = 0.37;
+    p.add(hips);
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.3, 3, 8), shirt);
+    torso.position.y = 0.6;
+    torso.castShadow = true;
+    p.add(torso);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.095, 10, 8), skin);
+    head.position.y = 0.95;
+    p.add(head);
+    // Haar (halve bol) of supporterspet (halve bol + klepje).
+    const isCap = this.rand(0, 1) < 0.4;
+    const hairMat = new THREE.MeshStandardMaterial({
+      color: isCap
+        ? new THREE.Color().setHSL(this.rand(0, 1), 0.75, 0.5)
+        : this.pick([0x2f2013, 0x151210, 0x6b4a26, 0xb8b4ac, 0xc7952d]),
+      roughness: 0.85,
+    });
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.1, 9, 6, 0, Math.PI * 2, 0, Math.PI / 2), hairMat);
+    hair.position.y = 0.97;
+    p.add(hair);
+    if (isCap) {
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.015, 0.08), hairMat);
+      visor.position.set(0, 0.99, -0.11); // klepje naar de weg (renner nadert uit -z)
+      p.add(visor);
+    }
+    // Armen: pivot bij de schouder, mesh langs +y — rotation.z beweegt ze.
+    // Juichers (70%) hebben de armen omhoog en zwaaien in update(); de rest
+    // laat ze rustig hangen.
+    const cheering = this.rand(0, 1) < 0.7;
+    const arms = [];
+    for (const s of [-1, 1]) {
+      const shoulder = new THREE.Group();
+      shoulder.position.set(s * 0.16, 0.76, 0);
+      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.22, 3, 6), shirt);
+      arm.position.y = 0.13;
+      shoulder.add(arm);
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.038, 6, 5), skin);
+      hand.position.y = 0.27;
+      shoulder.add(hand);
+      shoulder.rotation.z = cheering ? -s * this.rand(0.25, 0.7) : -s * this.rand(2.5, 2.9);
+      shoulder.userData = { base: shoulder.rotation.z, amp: cheering ? 0.3 : 0.05, o: s > 0 ? 0 : 1.7 };
+      p.add(shoulder);
+      arms.push(shoulder);
+    }
+    return { p, arms };
+  }
+
   makeCrowd() {
     const g = new THREE.Group();
-    const n = Math.floor(this.rand(5, 10));
+    const n = Math.floor(this.rand(4, 8));
     let flareBuilt = false;
     for (let i = 0; i < n; i++) {
-      const person = new THREE.Group();
-      const color = new THREE.Color().setHSL(this.rand(0, 1), 0.7, 0.55);
-      const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.8 });
-      const skinMat = new THREE.MeshStandardMaterial({ color: this.pick([0xe0ac69, 0xc68642, 0x8d5524, 0xf1c27d]), roughness: 0.8 });
-      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.38, 3, 8), bodyMat);
-      body.position.y = 0.47;
-      body.castShadow = true;
-      person.add(body);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 7), skinMat);
-      head.position.y = 0.85;
-      person.add(head);
-      // Petje (supporterspet, willekeurige kleur).
-      if (this.rand(0, 1) < 0.4) {
-        const cap = new THREE.Mesh(
-          new THREE.ConeGeometry(0.105, 0.09, 8),
-          new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(this.rand(0, 1), 0.75, 0.5), roughness: 0.8 })
-        );
-        cap.position.y = 0.93;
-        person.add(cap);
-      }
-      // Juichende armen, schuin omhoog.
-      for (const s of [-1, 1]) {
-        const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.032, 0.2, 3, 6), bodyMat);
-        arm.position.set(s * 0.2, 0.73, 0);
-        arm.rotation.z = -s * this.rand(0.55, 1.0);
-        person.add(arm);
-      }
+      const { p: person, arms } = this.makePerson();
       // Attribuut: tricolore (35%) of kartonnen bord (23%).
       const roll = this.rand(0, 1);
       if (roll < 0.35) {
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.9, 5), bodyMat);
-        pole.position.set(0.16, 0.95, 0);
+        const pole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.015, 0.015, 0.9, 5),
+          new THREE.MeshStandardMaterial({ color: 0xb8bec8, roughness: 0.6 })
+        );
+        pole.position.set(0.16, 1.0, 0);
         person.add(pole);
         const flag = new THREE.Mesh(
           new THREE.PlaneGeometry(0.44, 0.28),
           new THREE.MeshStandardMaterial({ map: this.flagTex, side: THREE.DoubleSide, roughness: 0.9 })
         );
-        flag.position.set(0.4, 1.25, 0);
+        flag.position.set(0.4, 1.32, 0);
         flag.rotation.y = Math.PI; // voorkant naar de naderende renner (-z)
         person.add(flag);
       } else if (roll < 0.58) {
@@ -1014,27 +1274,29 @@ export class World {
           new THREE.PlaneGeometry(0.56, 0.28),
           new THREE.MeshStandardMaterial({ map: this.pick(this.signTexes), side: THREE.DoubleSide, roughness: 0.95 })
         );
-        sign.position.set(0, 1.22, 0);
+        sign.position.set(0, 1.3, 0);
         // Tekstzijde naar de naderende renner (-z), zoals de spandoeken —
         // anders lees je de achterkant gespiegeld.
         sign.rotation.y = Math.PI;
         sign.rotation.z = this.rand(-0.15, 0.15);
         person.add(sign);
-        const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.32, 5), bodyMat);
-        stick.position.set(0, 1.0, 0);
+        const stick = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.012, 0.012, 0.34, 5),
+          new THREE.MeshStandardMaterial({ color: 0x8a6a42, roughness: 0.9 })
+        );
+        stick.position.set(0, 1.08, 0);
         person.add(stick);
       }
-      // Hooguit één fakkelman per groep; zichtbaarheid regelt de placeFn
-      // (alleen op klimmen, en dan nog maar soms).
+      // Hooguit één fakkelman per groep; zichtbaarheid regelt de placeFn.
       if (!flareBuilt && this.rand(0, 1) < 0.25) {
         flareBuilt = true;
         g.userData.flare = this.makeFlare(person);
       }
-      person.scale.setScalar(this.rand(0.82, 1.1)); // kinderen en volwassenen
+      person.scale.setScalar(this.rand(0.8, 1.08)); // kinderen en volwassenen
       person.position.set(this.rand(-0.9, 0.9), 0, this.rand(-1.8, 1.8));
       person.rotation.y = this.rand(-0.6, 0.6);
       g.add(person);
-      this.wavers.push({ g: person, phase: this.rand(0, Math.PI * 2) });
+      this.wavers.push({ g: person, phase: this.rand(0, Math.PI * 2), arms });
     }
     return g;
   }
@@ -1060,14 +1322,14 @@ export class World {
     const sprites = [];
     const mats = [];
     const offsets = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const m = new THREE.SpriteMaterial({ map: this.smokeTex, transparent: true, depthWrite: false, opacity: 0 });
       const s = new THREE.Sprite(m);
       s.position.set(0.31, 1.25, 0);
       fl.add(s);
       sprites.push(s);
       mats.push(m);
-      offsets.push(i / 3);
+      offsets.push(i / 4);
     }
     person.add(fl);
     this.flares.push({ node: fl, tipMat, sprites, mats, offsets, seed: this.rand(0, 10) });
@@ -1109,6 +1371,18 @@ export class World {
     if (heads.instanceColor) heads.instanceColor.needsUpdate = true;
     bodies.castShadow = true;
     g.add(bodies, heads);
+    // Elke haag heeft 1-2 fakkelmannen; de placeFn zet ze bijna altijd aan.
+    g.userData.flares = [];
+    const nf = this.rand(0, 1) < 0.4 ? 2 : 1;
+    for (let i = 0; i < nf; i++) {
+      const fl = this.makeFlare(g);
+      fl.position.set(
+        (this.rand(0, 1) < 0.5 ? -1 : 1) * this.rand(4.0, 4.5) - 0.29,
+        0,
+        this.rand(-5.5, 5.5)
+      );
+      g.userData.flares.push(fl);
+    }
     return g;
   }
 
@@ -1193,6 +1467,92 @@ export class World {
       pole.position.set(2.4, 0.93, z);
       g.add(pole);
     }
+    return g;
+  }
+
+  // Pol hoog gras: instanced kegeltjes in gemengde groentinten, geen schaduw.
+  makeGrassTuft() {
+    const n = 70;
+    const geo = new THREE.ConeGeometry(0.035, 0.3, 4);
+    geo.translate(0, 0.15, 0);
+    const m = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ roughness: 1 }), n);
+    const mtx = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const v = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    const col = new THREE.Color();
+    for (let i = 0; i < n; i++) {
+      e.set(this.rand(-0.18, 0.18), this.rand(0, Math.PI), this.rand(-0.18, 0.18));
+      q.setFromEuler(e);
+      v.set(this.rand(-1.4, 1.4), 0, this.rand(-4, 4));
+      sc.set(1, this.rand(0.7, 1.6), 1);
+      mtx.compose(v, q, sc);
+      m.setMatrixAt(i, mtx);
+      m.setColorAt(i, col.setHSL(0.26 + this.rand(-0.03, 0.05), 0.55, 0.3 + this.rand(0, 0.15)));
+    }
+    m.instanceMatrix.needsUpdate = true;
+    if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    m.castShadow = false;
+    m.rotation.order = 'YXZ'; // eerst de bocht in, dan de helling volgen
+    return m;
+  }
+
+  // Foodtruck: frietkraam met loket, luifelklep, toonbank en een reuzenfriet
+  // op het dak (loket aan de +x-kant; de placeFn draait hem naar de weg).
+  makeFoodTruck() {
+    const g = new THREE.Group();
+    g.rotation.order = 'YXZ';
+    const bodyMat = new THREE.MeshStandardMaterial({ color: this.pick([0xf2e3c8, 0xe86a4a, 0xf0c440]), roughness: 0.6 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x23252c, roughness: 0.5 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.1, 2.0, 3.4), bodyMat);
+    body.position.y = 1.35;
+    body.castShadow = true;
+    g.add(body);
+    for (const [x, z] of [[-0.8, -1.1], [0.8, -1.1], [-0.8, 1.1], [0.8, 1.1]]) {
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.22, 12), dark);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(x, 0.3, z);
+      g.add(wheel);
+    }
+    // Loket: donkere opening + opgeklapte streepjesluifel + toonbank.
+    const hatch = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 2.0), dark);
+    hatch.position.set(1.06, 1.7, 0);
+    g.add(hatch);
+    const flap = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.1, 0.9),
+      new THREE.MeshStandardMaterial({ map: awningTexture(), side: THREE.DoubleSide, roughness: 0.9 })
+    );
+    flap.rotation.y = Math.PI / 2;
+    flap.rotation.x = -0.9;
+    flap.position.set(1.35, 2.35, 0);
+    g.add(flap);
+    const counter = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.06, 2.1), bodyMat);
+    counter.position.set(1.2, 1.28, 0);
+    g.add(counter);
+    // Reuzenfriet op het dak.
+    const cone = new THREE.Mesh(
+      new THREE.ConeGeometry(0.26, 0.55, 8),
+      new THREE.MeshStandardMaterial({ color: 0xd81e05, roughness: 0.7 })
+    );
+    cone.rotation.x = Math.PI;
+    cone.position.set(0, 2.65, 0.8);
+    g.add(cone);
+    const friet = new THREE.MeshStandardMaterial({ color: 0xffd93b, roughness: 0.7 });
+    for (let i = 0; i < 5; i++) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.4, 0.07), friet);
+      f.position.set(-0.12 + (i % 3) * 0.12, 2.98, 0.72 + Math.floor(i / 3) * 0.14);
+      f.rotation.z = (i - 2) * 0.13;
+      g.add(f);
+    }
+    // FRITES-bord op de flank.
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.7, 0.5),
+      new THREE.MeshStandardMaterial({ map: foodSignTexture(), roughness: 0.8 })
+    );
+    sign.rotation.y = Math.PI / 2;
+    sign.position.set(1.07, 2.6, 0);
+    g.add(sign);
     return g;
   }
 
@@ -1356,20 +1716,27 @@ export class World {
       cl.position.x += cl.userData.drift * dt;
       if (cl.position.x > 170) cl.position.x = -170;
     }
+    // Publiek juicht: op-en-neer springen + zwaaiende armen (pivot op schouder).
     for (const w of this.wavers) {
       w.g.position.y = Math.max(0, Math.sin(time * 2.4 + w.phase)) * 0.14;
+      if (w.arms) {
+        for (const a of w.arms) {
+          a.rotation.z = a.userData.base + Math.sin(time * 5.2 + w.phase + a.userData.o) * a.userData.amp;
+        }
+      }
     }
-    // Fakkels: flikkerende tip + drie rook-sprites die opstijgen en vervagen.
+    // Fakkels: flikkerende tip + rook-sprites die opstijgen, uitdijen en
+    // vervagen — een flinke pluim, zoals op een echte col.
     for (const fl of this.flares) {
       if (!fl.node.visible) continue;
       fl.tipMat.emissiveIntensity = 2.2 + Math.sin(time * 27 + fl.seed) * 1.0;
       for (let i = 0; i < fl.sprites.length; i++) {
-        const p = (time * 0.4 + fl.offsets[i]) % 1;
+        const p = (time * 0.32 + fl.offsets[i]) % 1;
         const s = fl.sprites[i];
-        s.position.set(0.31 + Math.sin((p * 3 + fl.seed) * 2) * 0.12, 1.25 + p * 1.7, 0);
-        const sc = 0.3 + p * 0.85;
+        s.position.set(0.31 + Math.sin((p * 3 + fl.seed) * 2) * 0.22, 1.25 + p * 2.6, 0);
+        const sc = 0.5 + p * 1.9;
         s.scale.set(sc, sc, 1);
-        fl.mats[i].opacity = (1 - p) * 0.55;
+        fl.mats[i].opacity = (1 - p * p) * 0.65;
       }
     }
     this.roadChunks.update(playerZ, 80);
@@ -1378,14 +1745,15 @@ export class World {
     this.sunflowers.update(playerZ, 60);
     this.spectators.update(playerZ);
     this.hedges.update(playerZ, 20);
+    this.grassTufts.update(playerZ, 50);
     this.houses.update(playerZ, 60);
-    this.campers.update(playerZ, 50);
+    this.vehicles.update(playerZ, 50);
     // 200 m: dekt het banner-snap-venster (tot 176 m vóór de raster-z), anders
     // despawnt een vooruit-gesnapte zone-boog zichtbaar vlak voor de speler.
     this.arches.update(playerZ, 200);
     this.kmSigns.update(playerZ);
     this.bergSigns.update(playerZ);
-    this.obstacles.update(playerZ);
+    this.obstacles.update(playerZ, time);
   }
 
   dispose() {
