@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { CHARACTERS, BIKES, bikeById } from './data.js';
 import { STAGES, drawProfile } from './stages.js';
 import { buildRig } from './models.js';
+import { preloadBikeModels } from './bikeModels.js';
+import { preloadEnvModels } from './envModels.js';
 import { Showroom } from './menus.js';
 import { Race } from './game.js';
 import { sfx } from './audio.js';
@@ -228,3 +230,11 @@ function loop() {
 
 showTitle();
 loop();
+
+// GLB-modellen (fietsen + decor-huizen) laden op de achtergrond; tot die
+// tijd (en bij mislukken) is alles procedureel. Showroom verversen zodra
+// de fietsen er zijn.
+preloadBikeModels().then((ok) => {
+  if (ok && state !== 'race') updateShowroom();
+});
+preloadEnvModels();

@@ -5,6 +5,7 @@ import { World, ZONES, AMBIANCES } from './world.js';
 import { Terrain } from './terrain.js';
 import { RNG } from './rng.js';
 import { buildRig, disposeObject } from './models.js';
+import { PU_DEFS } from './powerups.js';
 import { envMap } from './env.js';
 import { sfx } from './audio.js';
 
@@ -15,6 +16,13 @@ const SLOPE_ACCEL = 9.0; // helling↔snelheid-koppeling (apart houden voor play
 // geen schokkend beeld (FOV en camera-lerp volgen de snelheid). Evenwicht
 // ~14 m/s: bewust onder de top, zodat R/U-mashen blijft lonen.
 const AUTO_PEDAL_INTERVAL = 0.28;
+// Power-ups (zie powerups.js). BOOST: top ×2 gedurende 5 s. FEATHER: 1.5×
+// spronghoogte (hoogte ~ vy², dus vy × √1.5) gedurende 10 s, met vy-cap zodat
+// je niet uit beeld springt. STAR: 10 s onkwetsbaar met aura. Activeren: F.
+const BOOST_DUR = 5;
+const FEATHER_DUR = 10;
+const STAR_DUR = 10;
+const MAX_HEARTS = 5;
 const MILESTONE_PHRASES = ['Allez allez!', 'Chapeau!', 'Formidable!', 'Het peloton is gelost!', 'Vive le vélo!', 'Tête de la course!'];
 
 const el = (id) => document.getElementById(id);
@@ -109,6 +117,12 @@ export class Race {
     this.crashed = false;
     this.crashT = 0;
     this.invuln = 0;
+    this.item = null; // opgeslagen power-up (id), activeren met ENTER
+    this.boostT = 0;
+    this.featherT = 0;
+    this.starT = 0;
+    this.aura = null; // lazy gebouwd bij eerste ster
+    this._fxStr = '';
     this.onPave = false;
     this.shake = 0;
     this.nextMilestone = (Math.floor(this.z / 1000) + 1) * 1000;
@@ -132,10 +146,13 @@ export class Race {
       hearts: el('hud-hearts'), best: el('hud-best'),
       keyE: el('key-e'), keyR: el('key-r'),
       countdown: el('countdown'), toast: el('toast'), flash: el('flash'),
+      item: el('hud-item'), itemIcon: el('item-icon'), itemFx: el('item-fx'),
     };
     this.hud.root.classList.remove('hidden');
     this.hud.best.textContent = this.best > 0 ? `Record: ${(this.best / 1000).toFixed(2)} km` : '';
     this.updateHearts();
+    this.updateItemSlot();
+    this.hud.itemFx.textContent = '';
     this.setExpectedKey('r');
 
     this._onKey = (e) => this.onKey(e);
@@ -165,28 +182,39 @@ export class Race {
     if (e.code === 'KeyJ') { this.jHeld = true; return; }
     if (this.phase !== 'riding' || this.crashed || this.paused) return;
 
+    if (e.code === 'KeyF') { this.useItem(); return; }
     if (e.code === 'KeyR' || e.code === 'KeyU') {
       const key = e.code === 'KeyR' ? 'r' : 'u';
       if (key !== this.lastKey) {
         this.pedalStroke(key);
       } else {
         // Zelfde toets twee keer: bijna geen kracht
-        this.speed += this.power * 0.1 * Math.max(0.15, 1 - this.speed / this.top);
+        this.speed += this.power * 0.1 * Math.max(0.15, 1 - this.speed / this.effTop);
         sfx.badPedal();
       }
     } else if (e.code === 'Space' && this.grounded) {
       this.grounded = false;
       // Bergop werkt als schans; bergaf geen aftrek (obstakels blijven haalbaar).
       const s = this.terrain.slopeAt(this.z);
-      this.vy = (6.6 + Math.min(this.speed, 16) * 0.07) * this.jumpMod + Math.max(0, s) * this.speed;
+      let vy = (6.6 + Math.min(this.speed, 16) * 0.07) * this.jumpMod + Math.max(0, s) * this.speed;
+      // Veertje: 1.5× spronghoogte ⇒ vy × √1.5; cap houdt de renner in beeld.
+      if (this.featherT > 0) vy = Math.min(13, vy * Math.sqrt(1.5));
+      this.vy = vy;
       sfx.jump();
     }
   }
 
   // Volle pedaalslag bij goed afwisselend R/U-werk (J-modus accelereert
   // continu in update() en komt hier niet).
+  // Effectieve topsnelheid: paddestoel-boost verdubbelt hem tijdelijk.
+  get effTop() {
+    return this.boostT > 0 ? this.top * 2 : this.top;
+  }
+
   pedalStroke(key) {
-    this.speed = Math.min(this.top, this.speed + this.power * Math.max(0.15, 1 - this.speed / this.top));
+    // Boven effTop (uitrazende boost) geeft trappen niets; nooit terugklemmen.
+    const cap = this.effTop;
+    if (this.speed < cap) this.speed = Math.min(cap, this.speed + this.power * Math.max(0.15, 1 - this.speed / cap));
     this.pedalTarget += Math.PI;
     sfx.pedal(key === 'r');
     this.lastKey = key;
@@ -199,7 +227,61 @@ export class Race {
   }
 
   updateHearts() {
-    this.hud.hearts.textContent = '❤'.repeat(this.hearts) + '♡'.repeat(3 - this.hearts);
+    // Hartjes-power-up kan boven de start-3 uitkomen (tot MAX_HEARTS).
+    this.hud.hearts.textContent = '❤'.repeat(this.hearts) + '♡'.repeat(Math.max(0, 3 - this.hearts));
+  }
+
+  updateItemSlot() {
+    const def = this.item ? PU_DEFS[this.item] : null;
+    this.hud.itemIcon.textContent = def ? def.icon : '';
+    this.hud.item.classList.toggle('full', !!def);
+  }
+
+  useItem() {
+    if (!this.item) return;
+    if (this.item === 'heart' && this.hearts >= MAX_HEARTS) {
+      this.toast('LEVENS VOL !', 1100); // item niet verspillen
+      return;
+    }
+    const id = this.item;
+    this.item = null;
+    this.updateItemSlot();
+    if (id === 'mushroom') {
+      this.boostT = BOOST_DUR;
+      this.toast('🍄 TURBO !', 1300);
+    } else if (id === 'feather') {
+      this.featherT = FEATHER_DUR;
+      this.toast('🪶 VEDERLICHT !', 1300);
+    } else if (id === 'star') {
+      this.starT = STAR_DUR;
+      if (!this.aura) this.buildAura();
+      this.aura.visible = true;
+      this.toast('⭐ SUPERKRACHT !', 1300);
+    } else if (id === 'heart') {
+      this.hearts += 1;
+      this.updateHearts();
+      this.toast('❤️ +1 LEVEN !', 1300);
+    }
+    sfx.powerup();
+  }
+
+  // Ster-aura: twee additieve schillen (geel binnen, blauw buiten) om renner
+  // en fiets; pulseert in update() als blauw/gele vlam.
+  buildAura() {
+    this.aura = new THREE.Group();
+    const mk = (color, opacity, sx, sy, sz, side) => {
+      const m = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 20, 14),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side })
+      );
+      m.scale.set(sx, sy, sz);
+      this.aura.add(m);
+      return m;
+    };
+    this.auraIn = mk(0xffd600, 0.3, 0.85, 1.05, 1.5, THREE.FrontSide);
+    this.auraOut = mk(0x3d8bff, 0.24, 1.0, 1.22, 1.72, THREE.BackSide);
+    this.aura.position.y = 0.95;
+    this.rig.add(this.aura);
   }
 
   toast(text, ms = 1800) {
@@ -245,16 +327,34 @@ export class Race {
     }
     if (this.phase === 'riding') this.rideTime += dt; // incl. crash-tijd: straf telt mee
 
+    // Power-up-timers lopen in echte rijtijd door (ook tijdens een crash).
+    if (this.boostT > 0) this.boostT -= dt;
+    if (this.featherT > 0) this.featherT -= dt;
+    if (this.starT > 0) {
+      this.starT -= dt;
+      // Blauw/gele vlam: schillen pulseren in tegenfase, licht flakkerend.
+      const p = this.time * 10;
+      this.aura.scale.set(1 + Math.sin(p) * 0.07, 1 + Math.sin(p * 1.35) * 0.09, 1 + Math.cos(p * 0.9) * 0.07);
+      this.auraIn.material.opacity = 0.3 + Math.sin(p) * 0.14;
+      this.auraOut.material.opacity = 0.24 + Math.cos(p) * 0.12;
+      // Laatste 1.5 s: knipperen als waarschuwing dat de superkracht afloopt.
+      this.aura.visible = this.starT > 1.5 || Math.floor(this.time * 8) % 2 === 0;
+      if (this.starT <= 0) this.aura.visible = false;
+    }
+
     if (this.phase === 'riding' && !this.crashed) {
       // Auto-trappen: continue acceleratie (zelfde gemiddelde vermogen als
       // discrete slagen, maar zonder pulsen). De cranks draaien vloeiend mee,
       // iets sneller naarmate je harder rijdt; het HUD-tikje en de R/U-chips
       // wisselen per halve omwenteling.
       if (this.jHeld) {
-        this.speed = Math.min(
-          this.top,
-          this.speed + (this.power / AUTO_PEDAL_INTERVAL) * Math.max(0.15, 1 - this.speed / this.top) * dt
-        );
+        const cap = this.effTop;
+        if (this.speed < cap) {
+          this.speed = Math.min(
+            cap,
+            this.speed + (this.power / AUTO_PEDAL_INTERVAL) * Math.max(0.15, 1 - this.speed / cap) * dt
+          );
+        }
         const cadence = 0.55 + 0.65 * Math.min(1.25, this.speed / this.top);
         this.pedalTarget += (Math.PI / AUTO_PEDAL_INTERVAL) * cadence * dt;
         const half = Math.floor(this.pedalTarget / Math.PI);
@@ -276,11 +376,18 @@ export class Race {
           sfx.fanfare();
         }
       }
-      // Helling↔snelheid: bergop remt, bergaf versnelt (gecapt op 1.25× top)
+      // Paddestoel: trek actief naar 2× top (geen getrap nodig tijdens boost).
+      if (this.boostT > 0) {
+        this.speed += (this.effTop - this.speed) * Math.min(1, dt * 2.5);
+      }
+      // Helling↔snelheid: bergop remt, bergaf versnelt (gecapt op 1.25× top).
+      // De cap klemt alleen wat de afdaling er dit frame bij doet — restsnelheid
+      // van een uitgewerkte boost mag natuurlijk uitrollen via de drag.
       const slope = this.terrain.slopeAt(this.z);
       if (this.grounded) {
+        const before = this.speed;
         this.speed -= SLOPE_ACCEL * slope * dt;
-        if (slope < 0) this.speed = Math.min(this.speed, this.top * 1.25);
+        if (slope < 0) this.speed = Math.min(this.speed, Math.max(before, this.effTop * 1.25));
       }
       // Uitrollen + luchtweerstand (sprintzone: merkbaar minder rolweerstand)
       this.speed = Math.max(0, this.speed - (0.35 + 0.05 * this.speed) * (zn.fx.drag || 1) * dt);
@@ -321,13 +428,41 @@ export class Race {
         const dz = this.z - o.z;
         if (o.pave) {
           if (Math.abs(dz) < o.d / 2 && this.grounded) this.onPave = true;
-        } else if (Math.abs(dz) < o.d / 2 + 0.45 && this.y - o.oy < o.h - 0.06 && this.invuln <= 0) {
+        } else if (Math.abs(dz) < o.d / 2 + 0.45 && this.y - o.oy < o.h - 0.06 && this.invuln <= 0 && this.starT <= 0) {
           this.crash();
           break;
         }
         if (!o.pave && !o.counted && dz > o.d / 2 + 0.6) {
           o.counted = true;
           this.jumpsCleared += 1;
+        }
+      }
+
+      // Spring-hint bij de eerste power-up die je nadert: leg één keer per
+      // rit uit hoe je hem pakt.
+      if (!this._puHint) {
+        for (const p of this.world.powerups.active) {
+          if (p.z > this.z && p.z - this.z < 45) {
+            this._puHint = true;
+            this.toast('SPRING (spatie) om de power-up te pakken!', 2200);
+            break;
+          }
+        }
+      }
+      // Power-up pakken: alleen al springend (drempel 0.65 m boven het wegdek,
+      // de bubbel hangt op FLOAT_H=2.3) en met een leeg slot — anders blijft
+      // de bubbel gewoon hangen.
+      if (!this.item) {
+        for (const p of this.world.powerups.active) {
+          if (Math.abs(this.z - p.z) < 1.35 && this.y - p.oy > 0.65) {
+            this.world.powerups.collect(p);
+            this.item = p.id;
+            this.updateItemSlot();
+            const def = PU_DEFS[p.id];
+            this.toast(`${def.icon} ${def.name} — druk F`, 1600);
+            sfx.pickup();
+            break;
+          }
         }
       }
 
@@ -391,7 +526,8 @@ export class Race {
 
     if (this.invuln > 0) {
       this.invuln -= dt;
-      this.rig.visible = Math.floor(this.time * 12) % 2 === 0;
+      // Ster-aura overstemt de invuln-knipper: renner blijft zichtbaar.
+      this.rig.visible = this.starT > 0 || Math.floor(this.time * 12) % 2 === 0;
       if (this.invuln <= 0) this.rig.visible = true;
     }
 
@@ -438,7 +574,9 @@ export class Race {
       this.camera.position.y += (Math.random() - 0.5) * this.shake * 0.35;
     }
     this.camera.lookAt(this._look);
-    this.camera.fov = 62 + (this.speed / this.top) * 12;
+    // Ratio-cap: tijdens de turbo-boost mag de FOV extra open (snelheidsgevoel),
+    // maar niet onbeperkt.
+    this.camera.fov = 62 + Math.min(1.7, this.speed / this.top) * 12;
     this.camera.updateProjectionMatrix();
 
     // Zon-frustum blijft gecentreerd op de speler, meedeinend met h(z) en x(z)
@@ -452,6 +590,15 @@ export class Race {
     this.hud.dist.textContent = this.stage
       ? `${(this.z * this.kmFactor).toFixed(1)} / ${this.stage.km} km`
       : this.z < 1000 ? `${Math.floor(this.z)} m` : `${(this.z / 1000).toFixed(2)} km`;
+    // Actieve effecten met aftellende seconden naast het item-slot.
+    let fx = '';
+    if (this.boostT > 0) fx += `🍄 ${Math.ceil(this.boostT)}  `;
+    if (this.featherT > 0) fx += `🪶 ${Math.ceil(this.featherT)}  `;
+    if (this.starT > 0) fx += `⭐ ${Math.ceil(this.starT)}`;
+    if (fx !== this._fxStr) {
+      this._fxStr = fx;
+      this.hud.itemFx.textContent = fx;
+    }
   }
 
   finish(won = false) {

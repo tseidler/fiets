@@ -2,6 +2,8 @@
 // zones ("parcours van de dag") en obstakels. Alles wordt hergebruikt
 // (object pooling + Scrollers) zodat het parcours eindeloos is.
 import * as THREE from 'three';
+import { Powerups } from './powerups.js';
+import { cloneHouseModel, cloneTreeModel } from './envModels.js';
 
 export const ROAD_W = 7;
 
@@ -921,6 +923,16 @@ export class World {
     const bushMat = new THREE.MeshStandardMaterial({ color: 0x3d7a33, roughness: 1 });
     this.trees = new Scroller(scene, 28, 22,
       () => {
+        // Merendeel van de bomen: geïmporteerd GLB-model (assets/environment)
+        // met gebakken random yaw, zodat clones niet identiek georiënteerd
+        // staan. De rest (en alles zolang modellen laden): procedureel groen.
+        if (rand(0, 1) < 0.8) {
+          const m = cloneTreeModel(Math.floor(rand(0, 3)));
+          if (m) {
+            m.rotation.y = rand(0, Math.PI * 2);
+            return m;
+          }
+        }
         const t = new THREE.Group();
         const kind = rand(0, 1);
         if (kind < 0.22) {
@@ -977,8 +989,10 @@ export class World {
     );
 
     // Dorpshuisjes: af en toe een Frans huis of gehuchtje langs de route.
+    // Om en om een geïmporteerd GLB-huis (assets/environment) en een
+    // procedureel huisje; zonder geladen modellen alles procedureel.
     this.houses = new Scroller(scene, 5, 190,
-      () => this.makeHouse(),
+      (i) => (i % 2 === 0 ? cloneHouseModel(i / 2) : null) ?? this.makeHouse(),
       (obj, z) => {
         const zf = z + rand(-45, 45);
         const side = rand(0, 1) < 0.5 ? -1 : 1;
@@ -1115,6 +1129,7 @@ export class World {
     }
 
     this.obstacles = new Obstacles(scene, courseRng.fork(102), this.course, terrain);
+    this.powerups = new Powerups(scene, courseRng.fork(103), terrain);
   }
 
   makeChunk(width, segsZ, mat, lift, tileU, curved) {
@@ -1754,9 +1769,11 @@ export class World {
     this.kmSigns.update(playerZ);
     this.bergSigns.update(playerZ);
     this.obstacles.update(playerZ, time);
+    this.powerups.update(playerZ, time);
   }
 
   dispose() {
     this.obstacles.dispose();
+    this.powerups.dispose();
   }
 }

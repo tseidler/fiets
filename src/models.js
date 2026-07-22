@@ -6,6 +6,7 @@ import {
   jerseyTexture, faceTexture, helmetTexture, tireTexture,
   frameDecalTexture, discTexture, sockTexture, isLightColor,
 } from './textures.js';
+import { buildModelBike } from './bikeModels.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -427,13 +428,16 @@ function solveLegIK(leg, ty, tz) {
 // Alles hangt strikt onder deze group (crash-animatie roteert de hele rig).
 export function buildRig(char, bike) {
   const g = new THREE.Group();
-  const b = buildBike(bike);
+  // Extern GLB-model als dat er is (zie bikeModels.js), anders procedureel.
+  const b = buildModelBike(bike) ?? buildBike(bike);
   const r = buildRider(char, bike);
   g.add(b, r);
   g.traverse((o) => {
     if (o.isMesh) o.castShadow = !o.userData.noShadow;
   });
-  const { wheelF, wheelB, crank, pedals } = b.userData;
+  const { wheelF, wheelB, crank, pedals, anchors } = b.userData;
+  // IK-ankers van het model (trapas + cranklengte) als die er zijn.
+  const A = anchors ?? { bbY: IK_BBY, bbZ: IK_BBZ, pedR: IK_PEDR };
   const pedal0 = pedals[0];
   const pedal1 = pedals[1];
   const { legL, legR } = r.userData;
@@ -448,8 +452,8 @@ export function buildRig(char, bike) {
     // opwaartse offset zodat de zool op het pedaal rust. Rechter- en linkerbeen
     // staan een halve slag uit fase (pedalen tegenover elkaar).
     const cp = Math.cos(phase), sp = Math.sin(phase);
-    solveLegIK(legR, IK_BBY - IK_PEDR * cp + 0.05, IK_BBZ - IK_PEDR * sp);
-    solveLegIK(legL, IK_BBY + IK_PEDR * cp + 0.05, IK_BBZ + IK_PEDR * sp);
+    solveLegIK(legR, A.bbY - A.pedR * cp + 0.05, A.bbZ - A.pedR * sp);
+    solveLegIK(legL, A.bbY + A.pedR * cp + 0.05, A.bbZ + A.pedR * sp);
   };
   return g;
 }
@@ -462,7 +466,9 @@ export function disposeObject(root) {
     // InstancedMesh.dispose() vuurt het dispose-event dat de renderer nodig
     // heeft om instanceMatrix-buffers uit zijn attribute-cache te verwijderen.
     if (o.isInstancedMesh) o.dispose();
-    if (o.geometry) o.geometry.dispose();
+    // Meshes van gedeelde fietsmodel-templates (bikeModels.js) houden hun
+    // geometrie: clones in showroom én race delen dezelfde buffers.
+    if (o.geometry && !o.userData.shared) o.geometry.dispose();
     if (o.material) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {

@@ -61,6 +61,15 @@ class SFX {
     this.tone(700, 0.1, 'triangle', 0.7);
     setTimeout(() => this.tone(1050, 0.16, 'triangle', 0.7), 90);
   }
+  pickup() {
+    this.tone(880, 0.07, 'triangle', 0.6);
+    setTimeout(() => this.tone(1320, 0.11, 'triangle', 0.6), 70);
+  }
+  powerup() {
+    [660, 880, 1100, 1470].forEach((f, i) =>
+      setTimeout(() => this.tone(f, 0.09, 'square', 0.5), i * 60)
+    );
+  }
   fanfare() {
     [523, 659, 784, 1046].forEach((f, i) =>
       setTimeout(() => this.tone(f, 0.18, 'square', 0.55), i * 110)

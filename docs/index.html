@@ -101,6 +101,25 @@
     #hud-keys .sep { font-size: 13px; font-weight: 700; color: #c8cfdc; }
     #hud-jump-hint { font-size: 13px; font-weight: 700; color: #c8cfdc; }
 
+    /* Power-up-slot: linksonder; vult met het icoon van het gepakte item. */
+    #hud-item { position: absolute; bottom: 30px; left: 26px; text-align: center; }
+    #item-box {
+      width: 66px; height: 66px; border-radius: 14px;
+      background: rgba(13,16,23,0.55); border: 3px dashed #4a5468;
+      display: flex; align-items: center; justify-content: center; font-size: 38px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    #hud-item.full #item-box {
+      border-style: solid; border-color: #ffd600;
+      box-shadow: 0 0 16px rgba(255,214,0,0.4);
+    }
+    #item-hint { font-size: 12px; font-weight: 700; color: #c8cfdc; margin-top: 5px; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+    #item-fx {
+      position: absolute; left: 78px; bottom: 34px; white-space: nowrap;
+      font-family: 'Arial Black', sans-serif; font-size: 22px;
+      text-shadow: 2px 2px 0 rgba(0,0,0,0.6);
+    }
+
     #countdown {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
       font-family: 'Arial Black', sans-serif; font-style: italic; font-size: clamp(90px, 20vw, 220px);
@@ -145,7 +164,7 @@
     .go-row span { color: #9aa4b8; font-weight: 600; }
     .go-row b { color: #ffd600; }
   </style>
-  <script type="module" crossorigin src="./assets/index-Bh_ABVrj.js"></script>
+  <script type="module" crossorigin src="./assets/index-DKM0FhYY.js"></script>
 </head>
 <body>
   <div id="ui">
@@ -155,7 +174,8 @@
       <div class="blink">DRUK OP ENTER OM TE STARTEN</div>
       <div class="credits">
         Trappen: afwisselend <span class="key">R</span><span class="key">U</span> of houd <span class="key">J</span> vast &nbsp;·&nbsp;
-        Springen: <span class="key">SPATIE</span> &nbsp;·&nbsp; Camera: <span class="key">V</span> &nbsp;·&nbsp; Pauze: <span class="key">P</span>
+        Springen: <span class="key">SPATIE</span> &nbsp;·&nbsp; Power-up: <span class="key">F</span> &nbsp;·&nbsp;
+        Camera: <span class="key">V</span> &nbsp;·&nbsp; Pauze: <span class="key">P</span>
       </div>
     </div>
 
@@ -171,6 +191,11 @@
       <div id="hud-right">
         <div id="hud-hearts">❤❤❤</div>
         <div id="hud-best"></div>
+      </div>
+      <div id="hud-item">
+        <div id="item-box"><span id="item-icon"></span></div>
+        <div id="item-hint">F = power-up</div>
+        <div id="item-fx"></div>
       </div>
       <div id="hud-keys">
         <span id="key-e" class="key next">R</span>
