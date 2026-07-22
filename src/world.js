@@ -916,61 +916,97 @@ export class World {
     this.buildMountains();
     this.buildClouds();
 
-    // Bomen en struiken langs de route
+    // Bomen en struiken langs de route. Niet als losse exemplaren maar in
+    // groepen: mini-bosjes in de berm en bomenrijen (Franse allée) langs de
+    // weg. Lege stukken berm mogen, maar wáár bomen staan, staan er meerdere.
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
     const pineMat = new THREE.MeshStandardMaterial({ color: 0x2d6a34, roughness: 1 });
     const leafMat = new THREE.MeshStandardMaterial({ color: 0x4f9a3f, roughness: 1 });
     const bushMat = new THREE.MeshStandardMaterial({ color: 0x3d7a33, roughness: 1 });
-    this.trees = new Scroller(scene, 28, 22,
-      () => {
-        // Merendeel van de bomen: geïmporteerd GLB-model (assets/environment)
-        // met gebakken random yaw, zodat clones niet identiek georiënteerd
-        // staan. De rest (en alles zolang modellen laden): procedureel groen.
-        if (rand(0, 1) < 0.8) {
-          const m = cloneTreeModel(Math.floor(rand(0, 3)));
-          if (m) {
-            m.rotation.y = rand(0, Math.PI * 2);
-            return m;
-          }
+    const makeTree = () => {
+      // Merendeel van de bomen: geïmporteerd GLB-model (assets/environment)
+      // met gebakken random yaw, zodat clones niet identiek georiënteerd
+      // staan. De rest (en alles zolang modellen laden): procedureel groen.
+      if (rand(0, 1) < 0.8) {
+        const m = cloneTreeModel(Math.floor(rand(0, 3)));
+        if (m) {
+          m.rotation.y = rand(0, Math.PI * 2);
+          return m;
         }
-        const t = new THREE.Group();
-        const kind = rand(0, 1);
-        if (kind < 0.22) {
-          // Struik: cluster lage bollen, geen stam.
-          for (let i = 0; i < 3; i++) {
-            const blob = new THREE.Mesh(new THREE.SphereGeometry(rand(0.35, 0.55), 8, 6), bushMat);
-            blob.scale.y = 0.75;
-            blob.position.set(rand(-0.35, 0.35), rand(0.2, 0.4), rand(-0.35, 0.35));
-            blob.castShadow = true;
-            t.add(blob);
-          }
-          return t;
-        }
-        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 1.2, 7), trunkMat);
-        trunk.position.y = 0.6;
-        trunk.castShadow = true;
-        t.add(trunk);
-        if (kind < 0.61) {
-          for (let i = 0; i < 3; i++) {
-            const cone = new THREE.Mesh(new THREE.ConeGeometry(0.9 - i * 0.22, 1.0, 8), pineMat);
-            cone.position.y = 1.3 + i * 0.62;
-            cone.castShadow = true;
-            t.add(cone);
-          }
-        } else {
-          const blob = new THREE.Mesh(new THREE.SphereGeometry(0.95, 9, 7), leafMat);
-          blob.position.y = 1.9;
+      }
+      const t = new THREE.Group();
+      const kind = rand(0, 1);
+      if (kind < 0.22) {
+        // Struik: cluster lage bollen, geen stam.
+        for (let i = 0; i < 3; i++) {
+          const blob = new THREE.Mesh(new THREE.SphereGeometry(rand(0.35, 0.55), 8, 6), bushMat);
+          blob.scale.y = 0.75;
+          blob.position.set(rand(-0.35, 0.35), rand(0.2, 0.4), rand(-0.35, 0.35));
           blob.castShadow = true;
           t.add(blob);
         }
         return t;
+      }
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 1.2, 7), trunkMat);
+      trunk.position.y = 0.6;
+      trunk.castShadow = true;
+      t.add(trunk);
+      if (kind < 0.61) {
+        for (let i = 0; i < 3; i++) {
+          const cone = new THREE.Mesh(new THREE.ConeGeometry(0.9 - i * 0.22, 1.0, 8), pineMat);
+          cone.position.y = 1.3 + i * 0.62;
+          cone.castShadow = true;
+          t.add(cone);
+        }
+      } else {
+        const blob = new THREE.Mesh(new THREE.SphereGeometry(0.95, 9, 7), leafMat);
+        blob.position.y = 1.9;
+        blob.castShadow = true;
+        t.add(blob);
+      }
+      return t;
+    };
+    this.trees = new Scroller(scene, 14, 48,
+      () => {
+        const g = new THREE.Group();
+        const row = rand(0, 1) < 0.45; // bomenrij langs de weg vs. mini-bos
+        const n = row ? 4 + Math.floor(rand(0, 3)) : 3 + Math.floor(rand(0, 4));
+        const step = rand(6.5, 8.5);
+        for (let i = 0; i < n; i++) {
+          const t = makeTree();
+          const s = row ? rand(1.0, 1.4) : rand(0.8, 1.6);
+          t.scale.set(s, s, s);
+          if (row) {
+            t.userData.dx = rand(-0.7, 0.7);
+            t.userData.dz = (i - (n - 1) / 2) * step + rand(-1, 1);
+          } else {
+            t.userData.dx = rand(-5.5, 5.5);
+            t.userData.dz = rand(-7, 7);
+          }
+          g.add(t);
+        }
+        g.userData.row = row;
+        return g;
       },
       (obj, z) => {
         const side = rand(0, 1) < 0.5 ? -1 : 1;
-        const zf = z + rand(-6, 6); // hoogte altijd op de finale z na jitter
-        obj.position.set(side * rand(6, 26) + this.terrain.curveAt(zf), this.terrain.heightAt(zf) - 0.05, zf);
-        const s = rand(0.8, 1.6);
-        obj.scale.set(s, s, s);
+        const zf = z + rand(-10, 10);
+        obj.visible = rand(0, 1) < 0.85; // af en toe een kaal stuk berm mag
+        // Rijen dicht langs de weg, bosjes verder de berm in (dx ≤ 5.5 houdt
+        // de binnenste bomen dan nog ruim van het asfalt).
+        const dist = side * (obj.userData.row ? rand(6.5, 9.5) : rand(13, 26));
+        const hz = this.terrain.heightAt(zf);
+        obj.position.set(dist + this.terrain.curveAt(zf), hz - 0.05, zf);
+        // Hoogte en bocht per boom op de eigen z, anders zweeft een bosje op
+        // een helling en prikt een rij in een bocht de weg in.
+        for (const t of obj.children) {
+          const tz = zf + t.userData.dz;
+          t.position.set(
+            t.userData.dx + this.terrain.curveAt(tz) - this.terrain.curveAt(zf),
+            this.terrain.heightAt(tz) - hz,
+            t.userData.dz
+          );
+        }
       }
     );
 
@@ -992,7 +1028,25 @@ export class World {
     // Om en om een geïmporteerd GLB-huis (assets/environment) en een
     // procedureel huisje; zonder geladen modellen alles procedureel.
     this.houses = new Scroller(scene, 5, 190,
-      (i) => (i % 2 === 0 ? cloneHouseModel(i / 2) : null) ?? this.makeHouse(),
+      (i) => {
+        const h = (i % 2 === 0 ? cloneHouseModel(i / 2) : null) ?? this.makeHouse();
+        // Erfbomen: elk huis krijgt drie kandidaat-bomen naast/achter de
+        // gevel; per plaatsing zijn er daarvan 0-3 zichtbaar.
+        h.userData.gardenTrees = [];
+        for (let k = 0; k < 3; k++) {
+          const t = makeTree();
+          const s = rand(0.7, 1.1);
+          t.scale.set(s, s, s);
+          // Naast/achter het huis: +x is de gevel naar de weg toe, dus de
+          // bomen staan opzij (±z) en iets naar achteren (-x), zodat ze ook
+          // met de rotatie-jitter nooit op het asfalt uitkomen. y compenseert
+          // de ingegraven fundering (zie plaatsing hieronder).
+          t.position.set(rand(-3, 0.5), 0.5, (k % 2 === 0 ? 1 : -1) * rand(4.5, 7.5));
+          h.add(t);
+          h.userData.gardenTrees.push(t);
+        }
+        return h;
+      },
       (obj, z) => {
         const zf = z + rand(-45, 45);
         const side = rand(0, 1) < 0.5 ? -1 : 1;
@@ -1001,6 +1055,8 @@ export class World {
         // door (helling ≤ 19% × halve diepte) en mag geen kier tonen.
         obj.position.set(side * rand(9.5, 17) + this.terrain.curveAt(zf), this.terrain.heightAt(zf) - 0.55, zf);
         obj.rotation.y = Math.atan(this.terrain.curveSlopeAt(zf)) + rand(-0.35, 0.35) + (side > 0 ? Math.PI : 0);
+        const nTrees = Math.floor(rand(0, 4)); // 0, 1, 2 of 3 erfbomen
+        obj.userData.gardenTrees.forEach((t, k) => { t.visible = k < nTrees; });
       },
       120
     );

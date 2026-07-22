@@ -21,11 +21,12 @@ const HOUSES = [
 // alpha-cutout bladeren). height = richthoogte; de bomen-Scroller schaalt
 // daar nog eens 0.8-1.6× overheen.
 const TREES = [
-  // treeset1 is in de bron een hérfstboom (oranjegeel blad); leafTint werkt
-  // als multiply op de bladtexture en maakt er zomers groen van.
-  { url: 'models/env/trees/treeset1.glb', height: 3.8, leafTint: 0x40d948 },
-  { url: 'models/env/trees/treeset2.glb', height: 4.5 }, // den (al groen)
-  { url: 'models/env/trees/treeset3.glb', height: 4.0 }, // loofboom (al groen)
+  // treeset1 was in de bron een hérfstboom; hij heeft nu een geel-groene
+  // bladtexture in de GLB en krijgt een milde groene multiply-tint zodat hij
+  // qua kleur bij de twee andere bomen past.
+  { url: 'models/env/trees/treeset1.glb', height: 3.8, leafTint: 0x9fe08c },
+  { url: 'models/env/trees/treeset2.glb', height: 4.5 }, // den
+  { url: 'models/env/trees/treeset3.glb', height: 4.0 }, // loofboom
 ];
 
 const templates = [];
